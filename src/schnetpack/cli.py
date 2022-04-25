@@ -161,7 +161,7 @@ def train(config: DictConfig):
     # Train the model
     log.info("Starting training.")
     trainer.fit(model=task, datamodule=datamodule)
-
+    
     # Evaluate model on test set after training
     log.info("Starting testing.")
     trainer.test()
