@@ -92,7 +92,8 @@ class SchNetPackCalculator(MDCalculator):
         """
 
         log.info("Loading model from {:s}".format(model_file))
-        model = torch.load(model_file).to(torch.float64)
+        # load model and keep it on CPU, device can be changed afterwards
+        model = torch.load(model_file, map_location="cpu").to(torch.float64)
         model = model.eval()
 
         if self.stress_label is not None:
@@ -104,12 +105,12 @@ class SchNetPackCalculator(MDCalculator):
             model = torch.jit.script(model)
 
         log.info("Deactivating inference mode for simulation...")
-        self._deactivate_inference_mode(model)
+        self._deactivate_postprocessing(model)
 
         return model
 
     @staticmethod
-    def _deactivate_inference_mode(model: AtomisticModel) -> AtomisticModel:
+    def _deactivate_postprocessing(model: AtomisticModel) -> AtomisticModel:
         if hasattr(model, "postprocessors"):
             for pp in model.postprocessors:
                 if isinstance(pp, schnetpack.transform.AddOffsets):
@@ -119,7 +120,7 @@ class SchNetPackCalculator(MDCalculator):
                             pp.mean.detach().cpu().numpy()
                         )
                     )
-        model.inference_mode = False
+        model.do_postprocessing = False
         return model
 
     @staticmethod

@@ -138,7 +138,6 @@ class Simulator(nn.Module):
                 # Call hook after forces
                 for hook in self.simulator_hooks:
                     hook.on_step_middle(self)
-                # self.system.wrap_positions()
 
                 # Do half step momenta
                 self.integrator.half_step(self.system)
@@ -148,6 +147,10 @@ class Simulator(nn.Module):
                 # the propagator when using thermostat and barostats
                 for hook in self.simulator_hooks[::-1]:
                     hook.on_step_end(self)
+
+                # Logging hooks etc
+                for hook in self.simulator_hooks:
+                    hook.on_step_finalize(self)
 
                 self.step += 1
                 self.effective_steps += 1

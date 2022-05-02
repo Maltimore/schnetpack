@@ -113,7 +113,7 @@ class HDF5Loader:
 
         # Extract energies
         entry_start = 0
-        entry_stop = 1
+        entry_stop = self.n_molecules
         self.properties[f"{properties.energy}_system"] = raw_positions[
             :, :, entry_start:entry_stop
         ].reshape(self.entries, self.n_replicas, self.n_molecules)
@@ -293,7 +293,7 @@ class HDF5Loader:
 
         # Compute the kinetic energy as 1/2*m*v^2
         kinetic_energy = 0.5 * np.sum(
-            masses[None, :, None] * velocities ** 2, axis=(1, 2)
+            masses[None, :, None] * velocities**2, axis=(1, 2)
         )
 
         return kinetic_energy

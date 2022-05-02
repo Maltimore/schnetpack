@@ -8,7 +8,91 @@ import schnetpack as spk
 import schnetpack.nn as snn
 import schnetpack.properties as properties
 
-__all__ = ["Atomwise", "DipoleMoment", "Polarizability"]
+__all__ = ["AtomwisePLC", "Atomwise", "DipoleMoment", "Polarizability"]
+
+
+class AtomwisePLC(nn.Module):
+    """
+    Predicts atom-wise contributions and accumulates global prediction, e.g. for the energy.
+
+    If `aggregation_mode` is None, only the per-atom predictions will be returned.
+    """
+
+    def __init__(
+        self,
+        n_in: int,
+        n_out: int = 1,
+        n_hidden: Optional[Union[int, Sequence[int]]] = None,
+        n_layers: int = 2,
+        activation: Callable = F.silu,
+        aggregation_mode: str = "sum",
+        output_key: str = "y",
+        per_atom_output_key: Optional[str] = None,
+    ):
+        """
+        Args:
+            n_in: input dimension of representation
+            n_out: output dimension of target property (default: 1)
+            n_hidden: size of hidden layers.
+                If an integer, same number of node is used for all hidden layers resulting
+                in a rectangular network.
+                If None, the number of neurons is divided by two after each layer starting
+                n_in resulting in a pyramidal network.
+            n_layers: number of layers.
+            aggregation_mode: one of {sum, avg} (default: sum)
+            output_key: the key under which the result will be stored
+            per_atom_output_key: If not None, the key under which the per-atom result will be stored
+        """
+        super(AtomwisePLC, self).__init__()
+        self.output_key = output_key
+        self.model_outputs = [output_key]
+        self.per_atom_output_key = per_atom_output_key
+        self.n_out = n_out
+
+        if aggregation_mode is None and self.per_atom_output_key is None:
+            raise ValueError(
+                "If `aggregation_mode` is None, `per_atom_output_key` needs to be set,"
+                + " since no accumulated output will be returned!"
+            )
+
+        self.outnet = spk.nn.build_mlp(
+            n_in=n_in,
+            n_out=n_out,
+            n_hidden=n_hidden,
+            n_layers=n_layers,
+            activation=activation,
+        )
+        self.aggregation_mode = aggregation_mode
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        # predict atomwise contributions
+        y = self.outnet(inputs["scalar_representation"])
+
+        # aggregate
+        if self.aggregation_mode is not None:
+            idx_m = inputs[properties.idx_m]
+
+            # adapt idx_m to distinguish between ligand, pocket and complex
+            idx_m_new = idx_m * 3
+            idx_m_new += inputs["pocket_separate_mask"].long()
+            idx_m_new += inputs["ligand_separate_mask"].long() * 2
+
+            # original aggregation procedure
+            maxm = int(idx_m_new[-1]) + 1
+            y = snn.scatter_add(y, idx_m_new, dim_size=maxm)
+            y = torch.squeeze(y, -1)
+
+            # model prediction is given by energy contribution difference between isolated pocket+ligand and complex
+            y_complex = y[::3]
+            y_pocket = y[1::3]
+            y_ligand = y[2::3]
+            y = y_pocket + y_ligand - y_complex
+
+            if self.aggregation_mode == "avg":
+                y = y / inputs[properties.n_atoms]
+
+        inputs[self.output_key] = y
+        return inputs
 
 
 class Atomwise(nn.Module):
@@ -45,6 +129,7 @@ class Atomwise(nn.Module):
         """
         super(Atomwise, self).__init__()
         self.output_key = output_key
+        self.model_outputs = [output_key]
         self.per_atom_output_key = per_atom_output_key
         self.n_out = n_out
 
@@ -137,6 +222,10 @@ class DipoleMoment(nn.Module):
         self.dipole_key = dipole_key
         self.charges_key = charges_key
         self.return_charges = return_charges
+        self.model_outputs = [dipole_key]
+        if self.return_charges:
+            self.model_outputs.append(charges_key)
+
         self.predict_magnitude = predict_magnitude
         self.use_vector_representation = use_vector_representation
         self.correct_charges = correct_charges
@@ -165,7 +254,6 @@ class DipoleMoment(nn.Module):
         natoms = inputs[properties.n_atoms]
         idx_m = inputs[properties.idx_m]
         maxm = int(idx_m[-1]) + 1
-        result = {}
 
         if self.use_vector_representation:
             l1 = inputs["vector_representation"]
@@ -182,14 +270,14 @@ class DipoleMoment(nn.Module):
                 total_charge = 0.0
 
             sum_charge = snn.scatter_add(charges, idx_m, dim_size=maxm)
-            charge_correction = (total_charge - sum_charge) / natoms.unsqueeze(-1)
-            charge_correction = torch.repeat_interleave(
-                charge_correction, natoms, dim=0
+            charge_correction = (total_charge[:, None] - sum_charge) / natoms.unsqueeze(
+                -1
             )
+            charge_correction = charge_correction[idx_m]
             charges = charges + charge_correction
 
         if self.return_charges:
-            result[self.charges_key] = charges
+            inputs[self.charges_key] = charges
 
         y = positions * charges
         if self.use_vector_representation:
@@ -201,8 +289,8 @@ class DipoleMoment(nn.Module):
         if self.predict_magnitude:
             y = torch.norm(y, dim=1, keepdim=False)
 
-        result[self.dipole_key] = y
-        return result
+        inputs[self.dipole_key] = y
+        return inputs
 
 
 class Polarizability(nn.Module):
@@ -243,6 +331,7 @@ class Polarizability(nn.Module):
         self.n_layers = n_layers
         self.n_hidden = n_hidden
         self.polarizability_key = polarizability_key
+        self.model_outputs = [polarizability_key]
 
         self.outnet = spk.nn.build_gated_equivariant_mlp(
             n_in=n_in,
@@ -281,5 +370,5 @@ class Polarizability(nn.Module):
         maxm = int(idx_m[-1]) + 1
         alpha = snn.scatter_add(alpha, idx_m, dim_size=maxm)
 
-        result = {self.polarizability_key: alpha}
-        return result
+        inputs[self.polarizability_key] = alpha
+        return inputs
