@@ -88,6 +88,9 @@ class AtomwisePLC(nn.Module):
             y_ligand = y[2::3]
             y = y_pocket + y_ligand - y_complex
 
+            ## get neg. log (dissociation constant)
+            #y = (-1) * torch.log10(y)
+
             if self.aggregation_mode == "avg":
                 y = y / inputs[properties.n_atoms]
 
