@@ -64,10 +64,14 @@ class AtomwisePLC(nn.Module):
         )
         self.aggregation_mode = aggregation_mode
 
+    def _set_xai(self, xai_mod: bool, gamma: float):
+        for ffn in self.outnet[:-1]:
+            ffn._set_xai(xai_mod, gamma)
+
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # predict atomwise contributions
         y = self.outnet(inputs["scalar_representation"])
-
+#         import pdb; pdb.set_trace()
         # aggregate
         if self.aggregation_mode is not None:
             idx_m = inputs[properties.idx_m]

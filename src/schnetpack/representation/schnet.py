@@ -32,7 +32,7 @@ class SchNetInteraction(nn.Module):
         super(SchNetInteraction, self).__init__()
         self.in2f = Dense(n_atom_basis, n_filters, bias=False, activation=None)
         self.f2out = nn.Sequential(
-            Dense(n_filters, n_atom_basis, activation=activation),
+            Dense(n_filters, n_atom_basis, activation=activation, xai_mod=xai_mod),
             Dense(n_atom_basis, n_atom_basis, activation=None),
         )
         self.filter_network = nn.Sequential(
@@ -70,6 +70,8 @@ class SchNetInteraction(nn.Module):
         x = self.f2out(x)
         return x
 
+    def _set_xai(self, xai_mod: bool, gamma: float):
+        self.f2out[0]._set_xai(xai_mod, gamma)
 
 class SchNet(nn.Module):
     """SchNet architecture for learning representations of atomistic systems
@@ -130,6 +132,7 @@ class SchNet(nn.Module):
                 n_rbf=self.radial_basis.n_rbf,
                 n_filters=self.n_filters,
                 activation=activation,
+                xai_mod=self.xai_mod,
             ),
             n_interactions,
             shared_interactions,

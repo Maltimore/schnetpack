@@ -325,7 +325,7 @@ class ASEAtomsData(BaseAtomsData):
         self, conn, idx: int, load_properties: List[str], load_structure: bool
     ):
         row = conn.get(idx + 1)
-
+        # import pdb; pdb.set_trace()
         # extract properties
         # TODO: can the copies be avoided?
         properties = {}
