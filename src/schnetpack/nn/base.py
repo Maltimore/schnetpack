@@ -86,8 +86,7 @@ class Dense(nn.Linear):
         ym *= (y < -1e-6 ).float()
 
         yo = yp + ym
-        out = (yo+1e-6) * (y/(yo+1e-6)).detach()
-
-#         out = torch.nan_to_num(out)
+        
+        out = yo * torch.nan_to_num(y/yo).detach()
 
         return out
