@@ -26,6 +26,7 @@ class Dense(nn.Linear):
         activation: Union[Callable, nn.Module] = None,
         weight_init: Callable = xavier_uniform_,
         bias_init: Callable = zeros_,
+        xai_mod: bool = False,
     ):
         """
         Args:
@@ -36,6 +37,8 @@ class Dense(nn.Linear):
             weight_init: weight initializer from current weight.
             bias_init: bias initializer from current bias.
         """
+        self.xai_mod = xai_mod
+        self.gamma = 0.
         self.weight_init = weight_init
         self.bias_init = bias_init
         super(Dense, self).__init__(in_features, out_features, bias)
@@ -49,7 +52,41 @@ class Dense(nn.Linear):
         if self.bias is not None:
             self.bias_init(self.bias)
 
+    def _set_xai(self, xai_mod: bool, gamma: float):
+        self.xai_mod = xai_mod
+        self.gamma = gamma
+
     def forward(self, input: torch.Tensor):
+        if hasattr(self, "xai_mod") and self.xai_mod:
+            return self._forward_xai(input)
+        else:
+            y = F.linear(input, self.weight, self.bias)
+            y = self.activation(y)
+            return y
+
+    def _forward_xai(self, input:torch.Tensor):
         y = F.linear(input, self.weight, self.bias)
         y = self.activation(y)
-        return y
+
+        # positive output
+        yp = F.linear(input.clamp(0),
+                      self.weight + self.gamma*self.weight.clamp(0),
+                      self.bias + self.gamma*self.bias.clamp(0)) # positive activation
+        yp += F.linear( -(-input).clamp(0),
+                       self.weight + self.gamma*-(-self.weight).clamp(0) ) # negative activation
+        yp *= (y > 1e-6).float()
+
+        # negative output
+        ym = F.linear(input.clamp(0),
+                      self.weight + self.gamma*(-(-self.weight).clamp(0)),
+                      self.bias + self.gamma*(-(-self.bias).clamp(0)) ) # positive activation
+
+        ym += F.linear( -(-input).clamp(0),
+                      self.weight + self.gamma*self.weight.clamp(0)) # negative activation
+        ym *= (y < -1e-6 ).float()
+
+        yo = yp + ym
+        
+        out = yo * torch.nan_to_num(y/yo).detach()
+
+        return out
