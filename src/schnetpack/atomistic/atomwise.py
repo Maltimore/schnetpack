@@ -151,6 +151,10 @@ class Atomwise(nn.Module):
             activation=activation,
         )
         self.aggregation_mode = aggregation_mode
+        
+    def _set_xai(self, xai_mod: bool, gamma: float):
+        for ffn in self.outnet[:-1]:
+            ffn._set_xai(xai_mod, gamma)
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # predict atomwise contributions
