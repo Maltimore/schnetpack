@@ -65,7 +65,7 @@ class Forces(nn.Module):
             [inputs[prop] for prop in self.required_derivatives],
             grad_outputs=go,
             create_graph=self.training,
-            retain_graph=True
+            #retain_graph=True
         )
 
         if self.calc_forces:
