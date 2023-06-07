@@ -71,7 +71,9 @@ class AtomwisePLC(nn.Module):
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # predict atomwise contributions
         y = self.outnet(inputs["scalar_representation"])
-#         import pdb; pdb.set_trace()
+        
+        # import pdb; pdb.set_trace()
+        
         # aggregate
         if self.aggregation_mode is not None:
             idx_m = inputs[properties.idx_m]

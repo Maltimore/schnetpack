@@ -19,8 +19,6 @@ from schnetpack.data import BaseAtomsData, AtomsLoader
 from schnetpack.train import PredictionWriter
 from schnetpack import properties
 
-import tempfile
-
 log = logging.getLogger(__name__)
 
 
