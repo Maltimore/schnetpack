@@ -138,6 +138,8 @@ class Atomwise(nn.Module):
         self.output_key = output_key
         self.model_outputs = [output_key]
         self.per_atom_output_key = per_atom_output_key
+        if self.per_atom_output_key is not None:
+            self.model_outputs.append(self.per_atom_output_key)
         self.n_out = n_out
 
         if aggregation_mode is None and self.per_atom_output_key is None:
@@ -162,7 +164,13 @@ class Atomwise(nn.Module):
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # predict atomwise contributions
         y = self.outnet(inputs["scalar_representation"])
-#         import pdb; pdb.set_trace()
+
+        # import pdb; pdb.set_trace()
+
+        # accumulate the per-atom output if necessary
+        if self.per_atom_output_key is not None:
+            inputs[self.per_atom_output_key] = y
+
         # aggregate
         if self.aggregation_mode is not None:
             idx_m = inputs[properties.idx_m]
@@ -211,22 +219,21 @@ class DipoleMoment(nn.Module):
         """
         Args:
             n_in: input dimension of representation
-            n_out: output dimension of target property (default: 1)
             n_hidden: size of hidden layers.
-                If an integer, same number of node is used for all hidden layers resulting
-                in a rectangular network.
-                If None, the number of neurons is divided by two after each layer starting
-                n_in resulting in a pyramidal network.
+                If an integer, same number of node is used for all hidden layers
+                resulting in a rectangular network.
+                If None, the number of neurons is divided by two after each layer
+                starting n_in resulting in a pyramidal network.
             n_layers: number of layers.
             activation: activation function
             predict_magnitude: If true, calculate magnitude of dipole
             return_charges: If true, return latent partial charges
             dipole_key: the key under which the dipoles will be stored
             charges_key: the key under which partial charges will be stored
-            correct_charges: If true, forces the sum of partial charges to be the the total charge, if provided,
-                and zero otherwise.
-            use_vector_representation: If true, use vector representation to predict local,
-                atomic dipoles.
+            correct_charges: If true, forces the sum of partial charges to be the total
+                charge, if provided, and zero otherwise.
+            use_vector_representation: If true, use vector representation to predict
+                local, atomic dipoles.
         """
         super().__init__()
 
@@ -275,15 +282,14 @@ class DipoleMoment(nn.Module):
             atomic_dipoles = 0.0
 
         if self.correct_charges:
-            if properties.total_charge in inputs:
-                total_charge = inputs[properties.total_charge]
-            else:
-                total_charge = 0.0
-
             sum_charge = snn.scatter_add(charges, idx_m, dim_size=maxm)
-            charge_correction = (total_charge[:, None] - sum_charge) / natoms.unsqueeze(
-                -1
-            )
+
+            if properties.total_charge in inputs:
+                total_charge = inputs[properties.total_charge][:, None]
+            else:
+                total_charge = torch.zeros_like(sum_charge)
+
+            charge_correction = (total_charge - sum_charge) / natoms.unsqueeze(-1)
             charge_correction = charge_correction[idx_m]
             charges = charges + charge_correction
 
@@ -327,7 +333,6 @@ class Polarizability(nn.Module):
         """
         Args:
             n_in: input dimension of representation
-            n_out: output dimension of target property (default: 1)
             n_hidden: size of hidden layers.
                 If an integer, same number of node is used for all hidden layers resulting
                 in a rectangular network.

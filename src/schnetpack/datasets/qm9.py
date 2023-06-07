@@ -133,12 +133,12 @@ class QM9(AtomsDataModule):
                 QM9.A: "GHz",
                 QM9.B: "GHz",
                 QM9.C: "GHz",
-                QM9.mu: "D",
-                QM9.alpha: "a0^3",
+                QM9.mu: "Debye",
+                QM9.alpha: "a0 a0 a0",
                 QM9.homo: "Ha",
                 QM9.lumo: "Ha",
                 QM9.gap: "Ha",
-                QM9.r2: "a0^2",
+                QM9.r2: "a0 a0",
                 QM9.zpve: "Ha",
                 QM9.U0: "Ha",
                 QM9.U: "Ha",
@@ -232,9 +232,9 @@ class QM9(AtomsDataModule):
 
         property_list = []
 
-        irange = np.arange(len(ordered_files), dtype=np.int)
+        irange = np.arange(len(ordered_files), dtype=int)
         if uncharacterized is not None:
-            irange = np.setdiff1d(irange, np.array(uncharacterized, dtype=np.int) - 1)
+            irange = np.setdiff1d(irange, np.array(uncharacterized, dtype=int) - 1)
 
         for i in tqdm(irange):
             xyzfile = os.path.join(raw_path, ordered_files[i])

@@ -293,14 +293,14 @@ class MoleculeStream(DataStream):
         if self.cells:
             # Get cells
             start = stop
-            stop += 9
+            stop += 9 * simulator.system.n_molecules
             self.buffer[
                 buffer_position : buffer_position + 1, :, start:stop
             ] = simulator.system.cells.view(simulator.system.n_replicas, -1).detach()
 
             # Get stress tensors
             start = stop
-            stop += 9
+            stop += 9 * simulator.system.n_molecules
             self.buffer[
                 buffer_position : buffer_position + 1, :, start:stop
             ] = simulator.system.stress.view(simulator.system.n_replicas, -1).detach()
@@ -720,7 +720,7 @@ class TensorBoardLogger(BasicTensorboardLogger):
     def _get_energies(system: System):
         """
         Instructions for obtaining kinetic, potential and total energy. If the potential energy has not been requested
-        explicitly in the calculator (`energy_label`) it will be constantly 0.
+        explicitly in the calculator (`energy_key`) it will be constantly 0.
 
         Args:
             system (schnetpack.md.System): System class.

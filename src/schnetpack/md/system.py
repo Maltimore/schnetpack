@@ -422,7 +422,7 @@ class System(UninitializedMixin, nn.Module):
     @property
     def potential_energy(self):
         """
-        Property for accessing potential energy pf system. The energy array is only populated if a `energy_label` is
+        Property for accessing potential energy pf system. The energy array is only populated if a `energy_key` is
         given in the calculator, energies will be 0 otherwise.
 
         Returns:
@@ -691,6 +691,9 @@ class System(UninitializedMixin, nn.Module):
             state_dict (dict): State dict of the system state.
         """
         self.load_state_dict(state_dict, strict=False)
+
+        # Set PBC to bool for periodic boundary conditions
+        self.pbc = self.pbc.bool()
 
         # Set derived properties for restarting
         self.n_replicas = self.positions.shape[0]

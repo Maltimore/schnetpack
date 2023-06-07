@@ -15,6 +15,7 @@ import os
 
 import ase
 from ase import units
+from ase.constraints import FixAtoms
 from ase.calculators.calculator import Calculator, all_changes
 from ase.io import read, write
 from ase.io.trajectory import Trajectory
@@ -30,14 +31,16 @@ from ase.vibrations import Vibrations
 import torch
 import schnetpack
 import logging
+from copy import deepcopy
 
 import schnetpack.task
 from schnetpack import properties
 from schnetpack.data.loader import _atoms_collate_fn
 from schnetpack.transform import CastTo32, CastTo64
 from schnetpack.units import convert_units
+from schnetpack.md.utils import activate_model_stress
 
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict
 from ase import Atoms
 
 log = logging.getLogger(__name__)
@@ -57,16 +60,46 @@ class AtomsConverter:
 
     def __init__(
         self,
-        neighbor_list: schnetpack.transform.Transform,
+        neighbor_list: Union[schnetpack.transform.Transform, None],
+        transforms: Union[
+            schnetpack.transform.Transform, List[schnetpack.transform.Transform]
+        ] = None,
         device: Union[str, torch.device] = "cpu",
         dtype: torch.dtype = torch.float32,
+        additional_inputs: Dict[str, torch.Tensor] = None,
     ):
-        self.neighbor_list = neighbor_list
+        """
+        Args:
+            neighbor_list (schnetpack.transform.Transform, None): neighbor list transform. Can be set to None incase
+                that the neighbor list is contained in transforms.
+            transforms: transforms for manipulating the neighbor lists. This can be either a single transform or a list
+                of transforms that will be executed after the neighbor list is calculated. Such transforms may be
+                useful, e.g., for filtering out certain neighbors. In case transforms are required before the neighbor
+                list is calculated, neighbor_list argument can be set to None and a list of transforms including the
+                neighbor list can be passed as transform argument. The transforms will be executed in the order of
+                their appearance in the list.
+            device (str, torch.device): device on which the model operates (default: cpu).
+            dtype (torch.dtype): required data type for the model input (default: torch.float32).
+            additional_inputs (dict): additional inputs required for some transforms.
+                When setting up the AtomsConverter, those additional inputs will be
+                stored to the input batch.
+        """
+
+        self.neighbor_list = deepcopy(neighbor_list)
         self.device = device
         self.dtype = dtype
+        self.additional_inputs = additional_inputs or {}
+
+        # convert transforms and neighbor_list to list
+        transforms = transforms or []
+        if type(transforms) != list:
+            transforms = [transforms]
+        neighbor_list = [] if neighbor_list is None else [neighbor_list]
 
         # get transforms and initialize neighbor list
-        self.transforms: List[schnetpack.transform.Transform] = [neighbor_list]
+        self.transforms: List[schnetpack.transform.Transform] = (
+            neighbor_list + transforms
+        )
 
         # Set numerical precision
         if dtype == torch.float32:
@@ -76,27 +109,50 @@ class AtomsConverter:
         else:
             raise AtomsConverterError(f"Unrecognized precision {dtype}")
 
-    def __call__(self, atoms: Atoms):
+    def __call__(self, atoms: List[Atoms] or Atoms):
         """
 
         Args:
-            atoms (ase.Atoms): ASE atoms object of the molecule.
+            atoms (list or ase.Atoms): list of ASE atoms objects or single ASE atoms object.
 
         Returns:
             dict[str, torch.Tensor]: input batch for model.
         """
-        inputs = {
-            properties.n_atoms: torch.tensor([atoms.get_global_number_of_atoms()]),
-            properties.Z: torch.from_numpy(atoms.get_atomic_numbers()),
-            properties.R: torch.from_numpy(atoms.get_positions()),
-            properties.cell: torch.from_numpy(atoms.get_cell().array),
-            properties.pbc: torch.from_numpy(atoms.get_pbc()),
-        }
 
-        for transform in self.transforms:
-            inputs = transform(inputs)
+        # check input type and prepare for conversion
+        if type(atoms) == list:
+            pass
+        elif type(atoms) == ase.Atoms:
+            atoms = [atoms]
+        else:
+            raise TypeError(
+                "atoms is type {}, but should be either list or ase.Atoms object".format(
+                    type(atoms)
+                )
+            )
 
-        inputs = _atoms_collate_fn([inputs])
+        inputs_batch = []
+        for at_idx, at in enumerate(atoms):
+
+            inputs = {
+                properties.n_atoms: torch.tensor([at.get_global_number_of_atoms()]),
+                properties.Z: torch.from_numpy(at.get_atomic_numbers()),
+                properties.R: torch.from_numpy(at.get_positions()),
+                properties.cell: torch.from_numpy(at.get_cell().array).view(-1, 3, 3),
+                properties.pbc: torch.from_numpy(at.get_pbc()).view(-1, 3),
+            }
+
+            # specify sample index
+            inputs.update({properties.idx: torch.tensor([at_idx])})
+
+            # add additional inputs (specified in AtomsConverter __init__)
+            inputs.update(self.additional_inputs)
+
+            for transform in self.transforms:
+                inputs = transform(inputs)
+            inputs_batch.append(inputs)
+
+        inputs = _atoms_collate_fn(inputs_batch)
 
         # Move input batch to device
         inputs = {p: inputs[p].to(self.device) for p in inputs}
@@ -104,22 +160,14 @@ class AtomsConverter:
         return inputs
 
 
+class SpkCalculatorError(Exception):
+    pass
+
+
 class SpkCalculator(Calculator):
     """
     ASE calculator for schnetpack machine learning models.
 
-    Args:
-        model: Trained model for calculations
-        neighbor_list: neighbor list for computing interatomic distances.
-        device: select to run calculations on 'cuda' or 'cpu'
-        energy: name of energy property in provided model.
-        forces: name of forces in provided model.
-        stress: name of stress property in provided model.
-        energy_units: energy units used by model
-        forces_units: force units used by model
-        stress_units: stress units used by model
-        precision: toggle model precision
-        **kwargs: Additional arguments for basic ase calculator class
     """
 
     energy = "energy"
@@ -129,38 +177,99 @@ class SpkCalculator(Calculator):
 
     def __init__(
         self,
-        model: schnetpack.model.AtomisticModel,
-        converter: AtomsConverter,
-        energy: str = "energy",
-        forces: str = "forces",
-        stress: str = "stress",
-        energy_units: Union[str, float] = "kcal/mol",
-        forces_units: Union[str, float] = "kcal/mol/Angstrom",
-        stress_units: Union[str, float] = "kcal/mol/Angstrom/Angstrom/Angstrom",
+        model_file: str,
+        neighbor_list: schnetpack.transform.Transform,
+        energy_key: str = "energy",
+        force_key: str = "forces",
+        stress_key: Optional[str] = None,
+        energy_unit: Union[str, float] = "kcal/mol",
+        position_unit: Union[str, float] = "Angstrom",
+        device: Union[str, torch.device] = "cpu",
+        dtype: torch.dtype = torch.float32,
+        converter: callable = AtomsConverter,
+        transforms: Union[
+            schnetpack.transform.Transform, List[schnetpack.transform.Transform]
+        ] = None,
+        additional_inputs: Dict[str, torch.Tensor] = None,
         **kwargs,
     ):
+
+        """
+        Args:
+            model_file (str): path to trained model
+            neighbor_list (schnetpack.transform.Transform): SchNetPack neighbor list
+            energy_key (str): name of energies in model (default="energy")
+            force_key (str): name of forces in model (default="forces")
+            stress_key (str): name of stress tensor in model. Will not be computed if set to None (default=None)
+            energy_unit (str, float): energy units used by model (default="kcal/mol")
+            position_unit (str, float): position units used by model (default="Angstrom")
+            device (torch.device): device used for calculations (default="cpu")
+            dtype (torch.dtype): select model precision (default=float32)
+            converter (callable): converter used to set up input batches
+            transforms (schnetpack.transform.Transform, list): transforms for the converter. More information
+                can be found in the AtomsConverter docstring.
+            additional_inputs (dict): additional inputs required for some transforms in the converter.
+            **kwargs: Additional arguments for basic ase calculator class
+        """
         Calculator.__init__(self, **kwargs)
 
-        self.converter = converter
+        self.converter = converter(
+            neighbor_list=neighbor_list,
+            device=device,
+            dtype=dtype,
+            transforms=transforms,
+            additional_inputs=additional_inputs,
+        )
 
-        self.model = model
-        self.model.to(device=self.converter.device, dtype=self.converter.dtype)
-
-        # TODO: activate computation of stress in model if requested
+        self.energy_key = energy_key
+        self.force_key = force_key
+        self.stress_key = stress_key
 
         # Mapping between ASE names and model outputs
         self.property_map = {
-            self.energy: energy,
-            self.forces: forces,
-            self.stress: stress,
+            self.energy: energy_key,
+            self.forces: force_key,
+            self.stress: stress_key,
         }
+
+        self.model = self._load_model(model_file)
+        self.model.to(device=device, dtype=dtype)
+
+        # set up basic conversion factors
+        self.energy_conversion = convert_units(energy_unit, "eV")
+        self.position_conversion = convert_units(position_unit, "Angstrom")
 
         # Unit conversion to default ASE units
         self.property_units = {
-            self.energy: convert_units(energy_units, "eV"),
-            self.forces: convert_units(forces_units, "eV/Angstrom"),
-            self.stress: convert_units(stress_units, "eV/Ang/Ang/Ang"),
+            self.energy: self.energy_conversion,
+            self.forces: self.energy_conversion / self.position_conversion,
+            self.stress: self.energy_conversion / self.position_conversion**3,
         }
+
+        # Container for basic ml model ouputs
+        self.model_results = None
+
+    def _load_model(self, model_file: str) -> schnetpack.model.AtomisticModel:
+        """
+        Load an individual model, activate stress computation
+
+        Args:
+            model_file (str): path to model.
+
+        Returns:
+           AtomisticTask: loaded schnetpack model
+        """
+
+        log.info("Loading model from {:s}".format(model_file))
+        # load model and keep it on CPU, device can be changed afterwards
+        model = torch.load(model_file, map_location="cpu").to(torch.float64)
+        model = model.eval()
+
+        if self.stress_key is not None:
+            log.info("Activating stress computation...")
+            model = activate_model_stress(model, self.stress_key)
+
+        return model
 
     def calculate(
         self,
@@ -171,7 +280,7 @@ class SpkCalculator(Calculator):
         """
         Args:
             atoms (ase.Atoms): ASE atoms object.
-            properties (list of str): do not use this, no functionality
+            properties (list of str): select properties computed and stored to results.
             system_changes (list of str): List of changes for ASE.
         """
         # First call original calculator to set atoms attribute
@@ -188,11 +297,12 @@ class SpkCalculator(Calculator):
             # TODO: use index information to slice everything properly
             for prop in properties:
                 model_prop = self.property_map[prop]
+
                 if model_prop in model_results:
-                    if prop == self.energy:
+                    if prop == self.energy or prop == self.stress:
                         # ase calculator should return scalar energy
                         results[prop] = (
-                            model_results[model_prop].cpu().data.numpy()[0]
+                            model_results[model_prop].cpu().data.numpy().item()
                             * self.property_units[prop]
                         )
                     else:
@@ -203,11 +313,12 @@ class SpkCalculator(Calculator):
                 else:
                     raise AtomsConverterError(
                         "'{:s}' is not a property of your model. Please "
-                        "check the model"
-                        "properties!".format(model_prop)
+                        "check the model "
+                        "properties!".format(prop)
                     )
 
             self.results = results
+            self.model_results = model_results
 
 
 class AseInterface:
@@ -219,29 +330,42 @@ class AseInterface:
         self,
         molecule_path: str,
         working_dir: str,
-        model: schnetpack.model.AtomisticModel,
-        converter: AtomsConverter,
-        energy: str = "energy",
-        forces: str = "forces",
-        stress: str = "stress",
-        energy_units: Union[str, float] = "kcal/mol",
-        forces_units: Union[str, float] = "kcal/mol/Angstrom",
-        stress_units: Union[str, float] = "kcal/mol/Angstrom/Angstrom/Angstrom",
+        model_file: str,
+        neighbor_list: schnetpack.transform.Transform,
+        energy_key: str = "energy",
+        force_key: str = "forces",
+        stress_key: Optional[str] = None,
+        energy_unit: Union[str, float] = "kcal/mol",
+        position_unit: Union[str, float] = "Angstrom",
+        device: Union[str, torch.device] = "cpu",
+        dtype: torch.dtype = torch.float32,
+        converter: AtomsConverter = AtomsConverter,
+        optimizer_class: type = QuasiNewton,
+        fixed_atoms: Optional[List[int]] = None,
+        transforms: Union[
+            schnetpack.transform.Transform, List[schnetpack.transform.Transform]
+        ] = None,
+        additional_inputs: Dict[str, torch.Tensor] = None,
     ):
         """
         Args:
             molecule_path: Path to initial geometry
             working_dir: Path to directory where files should be stored
-            model: Trained model
-            neighbor_list: neighbor list for computing interatomic distances.
-            device: select to run calculations on 'cuda' or 'cpu'
-            energy: name of energy property in provided model.
-            forces: name of forces in provided model.
-            stress: name of stress property in provided model.
-            energy_units: energy units used by model
-            forces_units: force units used by model
-            stress_units: stress units used by model
-            precision: toggle model precision
+            model_file (str): path to trained model
+            neighbor_list (schnetpack.transform.Transform): SchNetPack neighbor list
+            energy_key (str): name of energies in model (default="energy")
+            force_key (str): name of forces in model (default="forces")
+            stress_key (str): name of stress tensor in model. Will not be computed if set to None (default=None)
+            energy_unit (str, float): energy units used by model (default="kcal/mol")
+            position_unit (str, float): position units used by model (default="Angstrom")
+            device (torch.device): device used for calculations (default="cpu")
+            dtype (torch.dtype): select model precision (default=float32)
+            converter (schnetpack.interfaces.AtomsConverter): converter used to set up input batches
+            optimizer_class (ase.optimize.optimizer): ASE optimizer used for structure relaxation.
+            fixed_atoms (list(int)): list of indices corresponding to atoms with positions fixed in space.
+            transforms (schnetpack.transform.Transform, list): transforms for the converter. More information
+                can be found in the AtomsConverter docstring.
+            additional_inputs (dict): additional inputs required for some transforms in the converter.
         """
         # Setup directory
         self.working_dir = working_dir
@@ -251,16 +375,28 @@ class AseInterface:
         # Load the molecule
         self.molecule = read(molecule_path)
 
+        # Apply position constraints
+        if fixed_atoms:
+            c = FixAtoms(fixed_atoms)
+            self.molecule.set_constraint(constraint=c)
+
+        # Set up optimizer
+        self.optimizer_class = optimizer_class
+
         # Set up calculator
         calculator = SpkCalculator(
-            model,
+            model_file=model_file,
+            neighbor_list=neighbor_list,
+            energy_key=energy_key,
+            force_key=force_key,
+            stress_key=stress_key,
+            energy_unit=energy_unit,
+            position_unit=position_unit,
+            device=device,
+            dtype=dtype,
             converter=converter,
-            energy=energy,
-            forces=forces,
-            stress=stress,
-            energy_units=energy_units,
-            forces_units=forces_units,
-            stress_units=stress_units,
+            transforms=transforms,
+            additional_inputs=additional_inputs,
         )
 
         self.molecule.set_calculator(calculator)
@@ -402,7 +538,7 @@ class AseInterface:
         """
         name = "optimization"
         optimize_file = os.path.join(self.working_dir, name)
-        optimizer = QuasiNewton(
+        optimizer = self.optimizer_class(
             self.molecule,
             trajectory="{:s}.traj".format(optimize_file),
             restart="{:s}.pkl".format(optimize_file),
@@ -410,7 +546,7 @@ class AseInterface:
         optimizer.run(fmax, steps)
 
         # Save final geometry in xyz format
-        self.save_molecule(name)
+        self.save_molecule(name, file_format="extxyz")
 
     def compute_normal_modes(self, write_jmol: bool = True):
         """
