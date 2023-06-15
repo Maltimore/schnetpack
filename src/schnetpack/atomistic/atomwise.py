@@ -71,9 +71,9 @@ class AtomwisePLC(nn.Module):
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # predict atomwise contributions
         y = self.outnet(inputs["scalar_representation"])
-        
+
         # import pdb; pdb.set_trace()
-        
+
         # aggregate
         if self.aggregation_mode is not None:
             idx_m = inputs[properties.idx_m]
@@ -158,7 +158,7 @@ class Atomwise(nn.Module):
             activation=activation,
         )
         self.aggregation_mode = aggregation_mode
-        
+
     def _set_xai(self, xai_mod: bool, gamma: float):
         for ffn in self.outnet[:-1]:
             ffn._set_xai(xai_mod, gamma)
@@ -267,6 +267,11 @@ class DipoleMoment(nn.Module):
                 n_layers=n_layers,
                 activation=activation,
             )
+    def _set_xai(self, xai_mod: bool, gamma: float):
+        for ffn in self.outnet[:-1]:
+            ffn._set_xai(xai_mod, gamma)
+
+        self.xai_mod = True
 
     def forward(self, inputs):
         positions = inputs[properties.R]
@@ -306,7 +311,10 @@ class DipoleMoment(nn.Module):
         y = snn.scatter_add(y, idx_m, dim_size=maxm)
 
         if self.predict_magnitude:
-            y = torch.norm(y, dim=1, keepdim=False)
+            if hasattr(self, "xai_mod") and self.xai_mod:
+                y = (y * (y/ torch.norm(y, dim=1, keepdim=False)).data).sum().unsqueeze(0)
+            else:
+                y = torch.norm(y, dim=1, keepdim=False)
 
         inputs[self.dipole_key] = y
         return inputs
