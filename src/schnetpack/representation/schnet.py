@@ -70,6 +70,8 @@ class SchNetInteraction(nn.Module):
         x = self.f2out(x)
         return x
 
+    def _set_xai(self, xai_mod: bool, gamma: float):
+        self.f2out[0]._set_xai(xai_mod, gamma)
 
 class SchNet(nn.Module):
     """SchNet architecture for learning representations of atomistic systems
