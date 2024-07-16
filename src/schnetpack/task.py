@@ -24,7 +24,7 @@ class Maltes_partial_forces_loss(nn.Module):
         for molecule_idx in range(len(partial_forces_list)):
             loss_terms_list.append((partial_forces_list[molecule_idx] + partial_forces_list[molecule_idx].clone().detach().transpose(1, 0))**2)
         loss_terms = torch.stack(loss_terms_list)
-        return loss_terms.mean()
+        return loss_terms.mean(dim=(1, 2, 3)).sum()
 
 
 class ModelOutput(nn.Module):
