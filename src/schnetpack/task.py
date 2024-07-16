@@ -8,7 +8,23 @@ from torchmetrics import Metric
 
 from schnetpack.model.base import AtomisticModel
 
-__all__ = ["ModelOutput", "AtomisticTask"]
+__all__ = ["ModelOutput", "AtomisticTask", "Maltes_partial_forces_loss"]
+
+
+class Maltes_partial_forces_loss(nn.Module):
+    def __call__(self, pred, target):
+        partial_forces = pred
+        positions = target
+        # DEBUG
+        batch_size = 10
+        n_atoms = int(positions.shape[0] / batch_size)
+
+        loss_terms_list = []
+        partial_forces_list = torch.split(partial_forces, n_atoms, dim=0)
+        for molecule_idx in range(len(partial_forces_list)):
+            loss_terms_list.append((partial_forces_list[molecule_idx] + partial_forces_list[molecule_idx].clone().detach().transpose(1, 0))**2)
+        loss_terms = torch.stack(loss_terms_list)
+        return loss_terms.mean()
 
 
 class ModelOutput(nn.Module):
@@ -46,14 +62,18 @@ class ModelOutput(nn.Module):
         self.target_property = target_property or name
         self.loss_fn = loss_fn
         self.loss_weight = loss_weight
-        self.train_metrics = nn.ModuleDict(metrics)
-        self.val_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
-        self.test_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
-        self.metrics = {
-            "train": self.train_metrics,
-            "val": self.val_metrics,
-            "test": self.test_metrics,
-        }
+        if metrics is not None:
+            self.train_metrics = nn.ModuleDict(metrics)
+            self.val_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
+            self.test_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
+            self.metrics = {
+                "train": self.train_metrics,
+                "val": self.val_metrics,
+                "test": self.test_metrics,
+            }
+        else:
+            self.metrics = {}
+
         self.constraints = constraints or []
 
     def calculate_loss(self, pred, target):
@@ -147,6 +167,8 @@ class AtomisticTask(pl.LightningModule):
 
     def log_metrics(self, pred, targets, subset):
         for output in self.outputs:
+            if subset not in output.metrics.keys():
+                continue
             output.update_metrics(pred, targets, subset)
             for metric_name, metric in output.metrics[subset].items():
                 self.log(
