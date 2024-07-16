@@ -79,6 +79,7 @@ class Forces(nn.Module):
                 )[0]
                 partial_forces_list.append(forces_row)
             partial_forces = torch.cat(torch.split(torch.stack(partial_forces_list), n_atoms, dim=1))
+            partial_forces = - partial_forces
             inputs[self.partial_forces_key] = partial_forces
 
         go: List[Optional[torch.Tensor]] = [torch.ones_like(Epred)]
