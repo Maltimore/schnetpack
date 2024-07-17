@@ -13,18 +13,47 @@ __all__ = ["ModelOutput", "AtomisticTask", "Maltes_partial_forces_loss"]
 
 class Maltes_partial_forces_loss(nn.Module):
     def __call__(self, pred, target):
-        partial_forces = pred
-        positions = target
+        partial_forces_full = pred
+        positions_full = target
         # DEBUG
         batch_size = 10
-        n_atoms = int(positions.shape[0] / batch_size)
+        n_atoms = int(positions_full.shape[0] / batch_size)
 
         loss_terms_list = []
-        partial_forces_list = torch.split(partial_forces, n_atoms, dim=0)
-        for molecule_idx in range(len(partial_forces_list)):
-            loss_terms_list.append((partial_forces_list[molecule_idx] + partial_forces_list[molecule_idx].clone().detach().transpose(1, 0))**2)
-        loss_terms = torch.stack(loss_terms_list)
-        return loss_terms.mean(dim=(1, 2, 3)).sum()
+        partial_forces_list = torch.split(partial_forces_full, n_atoms, dim=0)
+        positions_list = torch.split(positions_full, n_atoms, dim=0)
+        for molecule_idx in range(batch_size):
+            partials = partial_forces_list[molecule_idx]
+            positions = positions_list[molecule_idx]
+            cosine_sim = torch.nn.functional.cosine_similarity(
+                partials,
+                partials.transpose(1, 0).clone().detach(),
+                dim=2,
+                eps=1e-18,
+            ).mean()
+            norms_squared_distance = ((
+                partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
+            )**2).mean()
+            # note that on the diagonal of r_ij we get cosines of 0 -> dissim of 1 -> regularizes self force
+            r_ij = positions[:, None, :] - positions[None, :, :]
+            partial_to_rij_cross = torch.linalg.cross(
+                r_ij,
+                partials,
+                dim=2,
+            ).norm(dim=2)
+            partial_to_rij_abs_sin = torch.abs(
+                partial_to_rij_cross / (r_ij.norm(dim=2) * partials.norm(dim=2).detach() + 1e-17)
+            ).clone().detach()
+            orthogonal_force_weighted_norms = (
+                partial_to_rij_abs_sin * torch.norm(partials, dim=2)**2
+            ).mean()
+            loss_terms_list.append(
+                cosine_sim
+                + norms_squared_distance
+                + 0.1 * orthogonal_force_weighted_norms
+            )
+            final_loss = torch.stack(loss_terms_list).mean()
+        return final_loss
 
 
 class ModelOutput(nn.Module):
