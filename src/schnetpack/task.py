@@ -55,22 +55,10 @@ class Maltes_partial_forces_loss(nn.Module):
             # just to be sure that the diagonal elements do not contribute to the grad
             cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_mask
             force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
-#            partial_to_rij_cross = torch.linalg.cross(
-#                r_ij,
-#                partials,
-#                dim=2,
-#            ).norm(dim=2)
-#            partial_to_rij_abs_sin = torch.abs(
-#                partial_to_rij_cross / (r_ij.norm(dim=2) * partials.norm(dim=2).detach() + 1e-17)
-#            ).clone().detach()
-#            orthogonal_force_weighted_norms = (
-#                partial_to_rij_abs_sin * torch.norm(partials, dim=2)**2
-#            ).mean()
             loss_terms_list.append(
                 cosine_sim_force_pairs
                 + squared_distance_force_pairs_norm
                 + force_to_rij_cosine_loss
-#                + 0.1 * orthogonal_force_weighted_norms
             )
             final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
