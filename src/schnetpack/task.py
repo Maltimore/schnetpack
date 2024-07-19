@@ -22,20 +22,30 @@ class Maltes_partial_forces_loss(nn.Module):
         loss_terms_list = []
         partial_forces_list = torch.split(partial_forces_full, n_atoms, dim=0)
         positions_list = torch.split(positions_full, n_atoms, dim=0)
+        diag_zeroing_mask = torch.ones(
+            (n_atoms, n_atoms),
+            device=positions_full.device,
+            dtype=positions_full.dtype
+        ) - torch.eye(n_atoms, device=positions_full.device)
         for molecule_idx in range(batch_size):
             partials = partial_forces_list[molecule_idx]
             positions = positions_list[molecule_idx]
+            r_ij = positions[:, None, :] - positions[None, :, :]
+            D = torch.norm(r_ij, dim=2)
             cosine_sim_force_pairs = torch.nn.functional.cosine_similarity(
                 partials,
                 partials.transpose(1, 0).clone().detach(),
                 dim=2,
                 eps=1e-18,
-            ).sum(axis=0).mean()
+            ).div((D + 1e-3)).sum(axis=0).mean()
+            # the cosine on the diagonal should be 1, where the gradient is 0,
+            # but I don't trust it so we multiply the diagonal by 0 to be sure
+            cosine_sim_force_pairs = cosine_sim_force_pairs * diag_zeroing_mask
+            # loss for making sure nurms of pairs are equal
             squared_distance_force_pairs_norm = ((
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
             )**2).sum(axis=0).mean()
             # note that on the diagonal of r_ij we get cosines of 0
-            r_ij = positions[:, None, :] - positions[None, :, :]
             cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
                 partials,
                 r_ij,
@@ -43,9 +53,8 @@ class Maltes_partial_forces_loss(nn.Module):
                 eps=1e-18,
             )
             # just to be sure that the diagonal elements do not contribute to the grad
-            mask = torch.ones_like(cosine_sim_force_r_ij) - torch.eye(cosine_sim_force_r_ij.shape[0], device=r_ij.device)
-            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * mask
-            force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).sum(axis=0).mean()
+            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_mask
+            force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
 #            partial_to_rij_cross = torch.linalg.cross(
 #                r_ij,
 #                partials,
