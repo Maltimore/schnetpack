@@ -25,32 +25,43 @@ class Maltes_partial_forces_loss(nn.Module):
         for molecule_idx in range(batch_size):
             partials = partial_forces_list[molecule_idx]
             positions = positions_list[molecule_idx]
-            cosine_sim = torch.nn.functional.cosine_similarity(
+            cosine_sim_force_pairs = torch.nn.functional.cosine_similarity(
                 partials,
                 partials.transpose(1, 0).clone().detach(),
                 dim=2,
                 eps=1e-18,
-            ).mean()
-            norms_squared_distance = ((
+            ).sum(axis=0).mean()
+            squared_distance_force_pairs_norm = ((
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
-            )**2).mean()
-            # note that on the diagonal of r_ij we get cosines of 0 -> dissim of 1 -> regularizes self force
+            )**2).sum(axis=0).mean()
+            # note that on the diagonal of r_ij we get cosines of 0
             r_ij = positions[:, None, :] - positions[None, :, :]
-            partial_to_rij_cross = torch.linalg.cross(
-                r_ij,
+            cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
                 partials,
+                r_ij,
                 dim=2,
-            ).norm(dim=2)
-            partial_to_rij_abs_sin = torch.abs(
-                partial_to_rij_cross / (r_ij.norm(dim=2) * partials.norm(dim=2).detach() + 1e-17)
-            ).clone().detach()
-            orthogonal_force_weighted_norms = (
-                partial_to_rij_abs_sin * torch.norm(partials, dim=2)**2
-            ).mean()
+                eps=1e-18,
+            )
+            # just to be sure that the diagonal elements do not contribute to the grad
+            mask = torch.ones_like(cosine_sim_force_r_ij) - torch.eye(cosine_sim_force_r_ij.shape[0], device=r_ij.device)
+            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * mask
+            force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).sum(axis=0).mean()
+#            partial_to_rij_cross = torch.linalg.cross(
+#                r_ij,
+#                partials,
+#                dim=2,
+#            ).norm(dim=2)
+#            partial_to_rij_abs_sin = torch.abs(
+#                partial_to_rij_cross / (r_ij.norm(dim=2) * partials.norm(dim=2).detach() + 1e-17)
+#            ).clone().detach()
+#            orthogonal_force_weighted_norms = (
+#                partial_to_rij_abs_sin * torch.norm(partials, dim=2)**2
+#            ).mean()
             loss_terms_list.append(
-                cosine_sim
-                + norms_squared_distance
-                + 0.1 * orthogonal_force_weighted_norms
+                cosine_sim_force_pairs
+                + squared_distance_force_pairs_norm
+                + force_to_rij_cosine_loss
+#                + 0.1 * orthogonal_force_weighted_norms
             )
             final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
