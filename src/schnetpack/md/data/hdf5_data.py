@@ -42,11 +42,13 @@ class HDF5Loader:
         self,
         hdf5_database: str,
         skip_initial: Optional[int] = 0,
+        select_indices=None,
         load_properties: Optional[bool] = True,
     ):
         self.database = h5py.File(hdf5_database, "r", swmr=True, libver="latest")
         self.skip_initial = skip_initial
         self.data_groups = list(self.database.keys())
+        self.select_indices = select_indices
 
         self.properties = {}
 
@@ -100,14 +102,20 @@ class HDF5Loader:
 
         # Determine loading
         self.total_entries = structures.attrs["entries"]
-        self.entries = self.total_entries - self.skip_initial
+        if self.select_indices is not None:
+            self.entries = len(self.select_indices)
+        else:
+            self.entries = self.total_entries - self.skip_initial
 
         # Get atom types and masses
         self.properties[properties.Z] = structures.attrs["atom_types"]
         self.properties[properties.masses] = structures.attrs["masses"]
 
         # Get position and velocity blocks
-        raw_positions = structures[self.skip_initial : self.total_entries]
+        if self.select_indices is not None:
+            raw_positions = structures[self.select_indices]
+        else:
+            raw_positions = structures[self.skip_initial : self.total_entries]
 
         entry_width = self.total_n_atoms * 3
 
