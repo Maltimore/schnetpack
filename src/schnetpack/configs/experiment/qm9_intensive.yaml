@@ -16,6 +16,10 @@ globals:
 data:
   transforms:
     - _target_: schnetpack.transform.SubtractCenterOfMass
+    - _target_: schnetpack.transform.RemoveOffsets
+      property: ${globals.property}
+      remove_atomrefs: False
+      remove_mean: True
     - _target_: schnetpack.transform.MatScipyNeighborList
       cutoff: ${globals.cutoff}
     - _target_: schnetpack.transform.CastTo32
@@ -28,6 +32,10 @@ model:
       aggregation_mode: ${globals.aggregation}
   postprocessors:
     - _target_: schnetpack.transform.CastTo64
+    - _target_: schnetpack.transform.AddOffsets
+      property: ${globals.property}
+      add_mean: True
+      add_atomrefs: False
 
 task:
   outputs:
