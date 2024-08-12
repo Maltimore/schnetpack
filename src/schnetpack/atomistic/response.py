@@ -26,9 +26,11 @@ class Forces(nn.Module):
         self,
         calc_forces: bool = True,
         calc_stress: bool = False,
+        calc_partial_forces: bool = False,
         energy_key: str = properties.energy,
         force_key: str = properties.forces,
         stress_key: str = properties.stress,
+        partial_forces_key: str = 'partial_forces',
     ):
         """
         Args:
@@ -44,11 +46,15 @@ class Forces(nn.Module):
         self.energy_key = energy_key
         self.force_key = force_key
         self.stress_key = stress_key
+        self.partial_forces_key = partial_forces_key
         self.model_outputs = []
         if calc_forces:
             self.model_outputs.append(force_key)
         if calc_stress:
             self.model_outputs.append(stress_key)
+        self.calc_partial_forces = calc_partial_forces
+        if calc_partial_forces:
+            self.model_outputs.append(partial_forces_key)
 
         self.required_derivatives = []
         if self.calc_forces:
@@ -58,6 +64,23 @@ class Forces(nn.Module):
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         Epred = inputs[self.energy_key]
+
+        if hasattr(self, 'calc_partial_forces') and self.calc_partial_forces:
+            n_atoms = inputs['_n_atoms'][0]
+            batch_size = len(inputs['_n_atoms'])
+            batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), n_atoms)
+            partial_forces_list = []
+            for j in range(n_atoms):
+                forces_row = grad(
+                    outputs=[batch_split_energy_contributions[i][j] for i in range(batch_size)],
+                    inputs=[inputs['_positions']],
+                    create_graph=self.training,
+                    retain_graph=True,
+                )[0]
+                partial_forces_list.append(forces_row)
+            partial_forces = torch.cat(torch.split(torch.stack(partial_forces_list), n_atoms, dim=1))
+            partial_forces = - partial_forces
+            inputs[self.partial_forces_key] = partial_forces
 
         go: List[Optional[torch.Tensor]] = [torch.ones_like(Epred)]
         grads = grad(
