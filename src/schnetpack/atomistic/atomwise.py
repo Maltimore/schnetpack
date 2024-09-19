@@ -312,7 +312,7 @@ class DipoleMoment(nn.Module):
 
         if self.predict_magnitude:
             if hasattr(self, "xai_mod") and self.xai_mod:
-                y = (y * (y/ torch.norm(y, dim=1, keepdim=False)).data).sum().unsqueeze(0)
+                y = (y * (y / (torch.norm(y, dim=1, keepdim=False) + 1e-18)).data).sum().unsqueeze(0)
             else:
                 y = torch.norm(y, dim=1, keepdim=False)
 
