@@ -15,7 +15,6 @@ class Maltes_partial_forces_loss(nn.Module):
     def __call__(self, pred, batch):
         n_atoms = tuple(batch['_n_atoms'])
 
-
         loss_terms_list = []
         partial_forces_list = torch.split(pred['partial_forces'], n_atoms, dim=0)
         positions_list = torch.split(batch['_positions'], n_atoms, dim=0)
@@ -42,7 +41,7 @@ class Maltes_partial_forces_loss(nn.Module):
             squared_distance_force_pairs_norm = ((
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
             )**2).sum(axis=0).mean()
-            self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
+#            self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
             # note that on the diagonal of r_ij we get cosines of 0
             cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
                 partials,
