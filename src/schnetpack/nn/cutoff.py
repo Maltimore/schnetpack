@@ -5,11 +5,24 @@ from torch import nn
 __all__ = [
     "CosineCutoff",
     "MollifierCutoff",
+    "NoCutoff",
     "mollifier_cutoff",
     "cosine_cutoff",
     "SwitchFunction",
 ]
 
+
+class NoCutoff(nn.Module):
+    def __init__(self, cutoff: float):
+        """
+        Args:
+            cutoff (float, optional): cutoff radius, will be ignored.
+        """
+        super(NoCutoff, self).__init__()
+        self.register_buffer("cutoff", torch.FloatTensor([cutoff]))
+
+    def forward(self, input: torch.Tensor):
+        return input
 
 def cosine_cutoff(input: torch.Tensor, cutoff: torch.Tensor):
     """ Behler-style cosine cutoff.
