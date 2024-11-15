@@ -13,6 +13,8 @@ __all__ = ["ModelOutput", "AtomisticTask", "UnsupervisedModelOutput", "Maltes_pa
 
 class Maltes_partial_forces_loss(nn.Module):
     def __call__(self, pred, batch):
+        if 'partial_forces' not in pred.keys():
+            return torch.tensor(0.0)
         if not torch.equal(batch['_n_atoms'], batch['_n_atoms'][0] * torch.ones_like(batch['_n_atoms'])):
             raise ValueError("This only works if all molecules in the batch have the same amount of atoms")
         else:
@@ -137,12 +139,14 @@ class UnsupervisedModelOutput(ModelOutput):
     """
     def __init__(
         self,
+        name: str,
         loss_fn: Optional[nn.Module] = None,
         loss_weight: float = 1.0,
         metrics: Optional[Dict[str, Metric]] = None,
         constraints: Optional[List[torch.nn.Module]] = None,
     ):
         nn.Module.__init__(self)
+        self.name = name
         self.loss_fn = loss_fn
         self.loss_weight = loss_weight
         if metrics is not None:
@@ -159,15 +163,15 @@ class UnsupervisedModelOutput(ModelOutput):
 
         self.constraints = constraints or []
 
-    def calculate_loss(self, pred, target=None):
+    def calculate_loss(self, pred, batch):
         if self.loss_weight == 0 or self.loss_fn is None:
             return 0.0
-        loss = self.loss_weight * self.loss_fn(pred, target)
+        loss = self.loss_weight * self.loss_fn(pred, batch)
         return loss
 
-    def update_metrics(self, pred, target, subset):
+    def update_metrics(self, pred, batch, subset):
         for metric in self.metrics[subset].values():
-            metric(pred[self.name])
+            metric(pred, batch)
 
 
 class AtomisticTask(pl.LightningModule):
