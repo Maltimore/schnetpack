@@ -8,20 +8,17 @@ from torchmetrics import Metric
 
 from schnetpack.model.base import AtomisticModel
 
-__all__ = ["ModelOutput", "AtomisticTask", "Maltes_partial_forces_loss"]
+__all__ = ["ModelOutput", "AtomisticTask", "UnsupervisedModelOutput", "Maltes_partial_forces_loss"]
 
 
 class Maltes_partial_forces_loss(nn.Module):
-    def __call__(self, pred, target):
-        partial_forces_full = pred
-        positions_full = target
-        # DEBUG
-        batch_size = 10
-        n_atoms = int(positions_full.shape[0] / batch_size)
+    def __call__(self, pred, batch):
+        n_atoms = tuple(batch['_n_atoms'])
+
 
         loss_terms_list = []
-        partial_forces_list = torch.split(partial_forces_full, n_atoms, dim=0)
-        positions_list = torch.split(positions_full, n_atoms, dim=0)
+        partial_forces_list = torch.split(pred['partial_forces'], n_atoms, dim=0)
+        positions_list = torch.split(batch['_positions'], n_atoms, dim=0)
         diag_zeroing_mask = torch.ones(
             (n_atoms, n_atoms),
             device=positions_full.device,
@@ -45,6 +42,7 @@ class Maltes_partial_forces_loss(nn.Module):
             squared_distance_force_pairs_norm = ((
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
             )**2).sum(axis=0).mean()
+            self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
             # note that on the diagonal of r_ij we get cosines of 0
             cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
                 partials,
@@ -58,6 +56,7 @@ class Maltes_partial_forces_loss(nn.Module):
             loss_terms_list.append(
                 cosine_sim_force_pairs
                 + squared_distance_force_pairs_norm
+#                + 0.01 * self_force_norm
                 + force_to_rij_cosine_loss
             )
             final_loss = torch.stack(loss_terms_list).mean()
@@ -127,17 +126,41 @@ class ModelOutput(nn.Module):
             metric(pred[self.name], target[self.target_property])
 
 
+
 class UnsupervisedModelOutput(ModelOutput):
     """
     Defines an unsupervised output of a model, i.e. an unsupervised loss or a regularizer
     that do not depend on label data. It includes mappings to the loss function,
     a weight for training and metrics to be logged.
     """
+    def __init__(
+        self,
+        loss_fn: Optional[nn.Module] = None,
+        loss_weight: float = 1.0,
+        metrics: Optional[Dict[str, Metric]] = None,
+        constraints: Optional[List[torch.nn.Module]] = None,
+    ):
+        nn.Module.__init__(self)
+        self.loss_fn = loss_fn
+        self.loss_weight = loss_weight
+        if metrics is not None:
+            self.train_metrics = nn.ModuleDict(metrics)
+            self.val_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
+            self.test_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
+            self.metrics = {
+                "train": self.train_metrics,
+                "val": self.val_metrics,
+                "test": self.test_metrics,
+            }
+        else:
+            self.metrics = {}
+
+        self.constraints = constraints or []
 
     def calculate_loss(self, pred, target=None):
         if self.loss_weight == 0 or self.loss_fn is None:
             return 0.0
-        loss = self.loss_weight * self.loss_fn(pred[self.name])
+        loss = self.loss_weight * self.loss_fn(pred, target)
         return loss
 
     def update_metrics(self, pred, target, subset):
@@ -224,18 +247,13 @@ class AtomisticTask(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        targets = {
-            output.target_property: batch[output.target_property]
-            for output in self.outputs
-            if not isinstance(output, UnsupervisedModelOutput)
-        }
         try:
             targets["considered_atoms"] = batch["considered_atoms"]
         except:
             pass
 
         pred = self.predict_without_postprocessing(batch)
-        pred, targets = self.apply_constraints(pred, targets)
+        pred, targets = self.apply_constraints(pred, batch)
 
         loss = self.loss_fn(pred, targets)
 
@@ -246,18 +264,13 @@ class AtomisticTask(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         torch.set_grad_enabled(self.grad_enabled)
 
-        targets = {
-            output.target_property: batch[output.target_property]
-            for output in self.outputs
-            if not isinstance(output, UnsupervisedModelOutput)
-        }
         try:
             targets["considered_atoms"] = batch["considered_atoms"]
         except:
             pass
 
         pred = self.predict_without_postprocessing(batch)
-        pred, targets = self.apply_constraints(pred, targets)
+        pred, targets = self.apply_constraints(pred, batch)
 
         loss = self.loss_fn(pred, targets)
 
@@ -276,18 +289,13 @@ class AtomisticTask(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         torch.set_grad_enabled(self.grad_enabled)
 
-        targets = {
-            output.target_property: batch[output.target_property]
-            for output in self.outputs
-            if not isinstance(output, UnsupervisedModelOutput)
-        }
         try:
             targets["considered_atoms"] = batch["considered_atoms"]
         except:
             pass
 
         pred = self.predict_without_postprocessing(batch)
-        pred, targets = self.apply_constraints(pred, targets)
+        pred, targets = self.apply_constraints(pred, batch)
 
         loss = self.loss_fn(pred, targets)
 
