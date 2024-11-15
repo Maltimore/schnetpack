@@ -66,6 +66,7 @@ class Forces(nn.Module):
         Epred = inputs[self.energy_key]
 
         if self.calc_partial_forces:
+
             n_atoms = inputs['_n_atoms'][0]
             batch_size = len(inputs['_n_atoms'])
             batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), n_atoms)
@@ -82,6 +83,8 @@ class Forces(nn.Module):
             # forces are negative gradient
             partial_forces = - partial_forces
             inputs[self.partial_forces_key] = partial_forces
+        else:
+            inputs[self.partial_forces_key] = None
 
         go: List[Optional[torch.Tensor]] = [torch.ones_like(Epred)]
         grads = grad(
