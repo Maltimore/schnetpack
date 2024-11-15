@@ -13,17 +13,20 @@ __all__ = ["ModelOutput", "AtomisticTask", "UnsupervisedModelOutput", "Maltes_pa
 
 class Maltes_partial_forces_loss(nn.Module):
     def __call__(self, pred, batch):
-        n_atoms = tuple(batch['_n_atoms'])
+        if not torch.equal(batch['_n_atoms'], batch['_n_atoms'][0] * torch.ones_like(batch['_n_atoms'])):
+            raise ValueError("This only works if all molecules in the batch have the same amount of atoms")
+        else:
+            n_atoms = batch['_n_atoms'][0].item()
 
         loss_terms_list = []
         partial_forces_list = torch.split(pred['partial_forces'], n_atoms, dim=0)
         positions_list = torch.split(batch['_positions'], n_atoms, dim=0)
         diag_zeroing_mask = torch.ones(
             (n_atoms, n_atoms),
-            device=positions_full.device,
-            dtype=positions_full.dtype
-        ) - torch.eye(n_atoms, device=positions_full.device)
-        for molecule_idx in range(batch_size):
+            device=positions_list[0].device,
+            dtype=positions_list[0].dtype
+        ) - torch.eye(n_atoms, device=positions_list[0].device)
+        for molecule_idx in range(len(batch['_n_atoms'])):
             partials = partial_forces_list[molecule_idx]
             positions = positions_list[molecule_idx]
             r_ij = positions[:, None, :] - positions[None, :, :]
