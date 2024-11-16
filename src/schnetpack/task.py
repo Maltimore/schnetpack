@@ -120,6 +120,7 @@ class ModelOutput(nn.Module):
         if self.loss_weight == 0 or self.loss_fn is None:
             return 0.0
 
+
         loss = self.loss_weight * self.loss_fn(
             pred[self.name], target[self.target_property]
         )
@@ -252,13 +253,13 @@ class AtomisticTask(pl.LightningModule):
         return pred, targets
 
     def training_step(self, batch, batch_idx):
-
         try:
             targets["considered_atoms"] = batch["considered_atoms"]
         except:
             pass
+        batch_new_reference = {k: v for k, v in batch.items()}
 
-        pred = self.predict_without_postprocessing(batch)
+        pred = self.predict_without_postprocessing(batch_new_reference)
         pred, targets = self.apply_constraints(pred, batch)
 
         loss = self.loss_fn(pred, targets)
@@ -275,7 +276,8 @@ class AtomisticTask(pl.LightningModule):
         except:
             pass
 
-        pred = self.predict_without_postprocessing(batch)
+        batch_new_reference = {k: v for k, v in batch.items()}
+        pred = self.predict_without_postprocessing(batch_new_reference)
         pred, targets = self.apply_constraints(pred, batch)
 
         loss = self.loss_fn(pred, targets)
@@ -300,7 +302,8 @@ class AtomisticTask(pl.LightningModule):
         except:
             pass
 
-        pred = self.predict_without_postprocessing(batch)
+        batch_new_reference = {k: v for k, v in batch.items()}
+        pred = self.predict_without_postprocessing(batch_new_reference)
         pred, targets = self.apply_constraints(pred, batch)
 
         loss = self.loss_fn(pred, targets)
