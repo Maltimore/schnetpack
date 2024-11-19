@@ -218,9 +218,12 @@ class AtomisticTask(pl.LightningModule):
         self.warmup_steps = warmup_steps
         self.save_hyperparameters()
 
+    def add_datamodule(self, datamodule):
+        self.datamodule = datamodule
+
     def setup(self, stage=None):
         if stage == "fit":
-            self.model.initialize_transforms(self.trainer.datamodule)
+            self.model.initialize_transforms(self.datamodule)
 
     def forward(self, inputs: Dict[str, torch.Tensor]):
         results = self.model(inputs)
@@ -229,6 +232,16 @@ class AtomisticTask(pl.LightningModule):
     def loss_fn(self, pred, batch):
         loss = 0.0
         for output in self.outputs:
+            if isinstance(output, UnsupervisedModelOutput):
+                continue
+            loss += output.calculate_loss(pred, batch)
+        return loss
+
+    def unsupervised_loss_fn(self, pred, batch):
+        loss = 0.0
+        for output in self.outputs:
+            if not isinstance(output, UnsupervisedModelOutput):
+                continue
             loss += output.calculate_loss(pred, batch)
         return loss
 
@@ -253,20 +266,34 @@ class AtomisticTask(pl.LightningModule):
         return pred, targets
 
     def training_step(self, batch, batch_idx):
-        try:
-            targets["considered_atoms"] = batch["considered_atoms"]
-        except:
-            pass
-        batch_new_reference = {k: v for k, v in batch.items()}
+#        try:
+#            targets["considered_atoms"] = batch["considered_atoms"]
+#        except:
+#            pass
 
-        pred = self.predict_without_postprocessing(batch_new_reference)
-        pred, targets = self.apply_constraints(pred, batch)
+        # SUPERVISED
+        if batch['supervised'] is not None:
+            batch_ = batch['supervised']
+            batch_new_reference = {k: v for k, v in batch_.items()}
+            pred = self.predict_without_postprocessing(batch_new_reference)
+            pred, targets = self.apply_constraints(pred, batch_)
+            loss = self.loss_fn(pred, targets)
+            self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
+            self.log_metrics(pred, targets, "train")
+        else:
+            loss = 0.
 
-        loss = self.loss_fn(pred, targets)
+        # UNSUPERVISED
+        if batch['unsupervised'] is not None:
+            batch_ = batch['unsupervised']
+            batch_new_reference = {k: v for k, v in batch_.items()}
+            pred = self.predict_without_postprocessing(batch_new_reference)
+            pred, targets = self.apply_constraints(pred, batch_)
+            unsupervised_loss = self.unsupervised_loss_fn(pred, targets)
+        else:
+            unsupervised_loss = 0.
+        return loss + unsupervised_loss
 
-        self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
-        self.log_metrics(pred, targets, "train")
-        return loss
 
     def validation_step(self, batch, batch_idx):
         torch.set_grad_enabled(self.grad_enabled)

@@ -120,6 +120,24 @@ def train(config: DictConfig):
             else None
         ),
     )
+    datamodule.setup()
+
+    # unsupervised data
+    log.info(f"Instantiating unsupervised datamodule <{config.data._target_}>")
+    import copy
+    data_args_dict_copy = copy.copy(config.data)
+    data_args_dict_copy['split_file'] = None
+    data_args_dict_copy['num_train'] = 1000
+    data_args_dict_copy['transforms'][2]['cache_workdir'] = data_args_dict_copy['transforms'][2]['cache_workdir'] + '2'
+    datamodule_unsupervised: LightningDataModule = hydra.utils.instantiate(
+        data_args_dict_copy,
+        train_sampler_cls=(
+            str2class(data_args_dict_copy.train_sampler_cls)
+            if data_args_dict_copy.train_sampler_cls
+            else None
+        ),
+    )
+    datamodule_unsupervised.setup()
 
     # Init model
     log.info(f"Instantiating model <{config.model._target_}>")
@@ -137,6 +155,7 @@ def train(config: DictConfig):
         optimizer_cls=str2class(config.task.optimizer_cls),
         scheduler_cls=scheduler_cls,
     )
+    task.add_datamodule(datamodule)
 
     # Init Lightning callbacks
     callbacks: List[Callback] = []
@@ -172,7 +191,15 @@ def train(config: DictConfig):
 
     # Train the model
     log.info("Starting training.")
-    trainer.fit(model=task, datamodule=datamodule, ckpt_path=config.run.ckpt_path)
+    from pytorch_lightning.utilities import CombinedLoader
+    train_dataloaders = CombinedLoader(
+        iterables={
+            'supervised': datamodule.train_dataloader(),
+            'unsupervised': datamodule_unsupervised.train_dataloader(),
+        },
+        mode='max_size'
+    )
+    trainer.fit(model=task, train_dataloaders=train_dataloaders, val_dataloaders=datamodule.val_dataloader(), ckpt_path=config.run.ckpt_path)
 
     # Evaluate model on test set after training
     log.info("Starting testing.")
