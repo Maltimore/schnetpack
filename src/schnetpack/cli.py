@@ -124,16 +124,11 @@ def train(config: DictConfig):
 
     # unsupervised data
     log.info(f"Instantiating unsupervised datamodule <{config.data._target_}>")
-    import copy
-    data_args_dict_copy = copy.copy(config.data)
-    data_args_dict_copy['split_file'] = None
-    data_args_dict_copy['num_train'] = 1000
-    data_args_dict_copy['transforms'][2]['cache_workdir'] = data_args_dict_copy['transforms'][2]['cache_workdir'] + '2'
     datamodule_unsupervised: LightningDataModule = hydra.utils.instantiate(
-        data_args_dict_copy,
+        config.data_unsupervised,
         train_sampler_cls=(
-            str2class(data_args_dict_copy.train_sampler_cls)
-            if data_args_dict_copy.train_sampler_cls
+            str2class(config.data_unsupervised.train_sampler_cls)
+            if config.data_unsupervised.train_sampler_cls
             else None
         ),
     )
@@ -197,7 +192,7 @@ def train(config: DictConfig):
             'supervised': datamodule.train_dataloader(),
             'unsupervised': datamodule_unsupervised.train_dataloader(),
         },
-        mode='max_size'
+        mode='max_size_cycle'
     )
     trainer.fit(model=task, train_dataloaders=train_dataloaders, val_dataloaders=datamodule.val_dataloader(), ckpt_path=config.run.ckpt_path)
 
