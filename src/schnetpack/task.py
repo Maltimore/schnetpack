@@ -43,7 +43,7 @@ class Maltes_partial_forces_loss(nn.Module):
             # but I don't trust it so we multiply the diagonal by 0 to be sure
             cosine_sim_force_pairs = cosine_sim_force_pairs * diag_zeroing_mask
             # loss for making sure nurms of pairs are equal
-            squared_distance_force_pairs_norm = ((
+            squared_distance_force_norms = ((
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
             )**2).sum(axis=0).mean()
 #            self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
@@ -59,7 +59,7 @@ class Maltes_partial_forces_loss(nn.Module):
             force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
             loss_terms_list.append(
                 cosine_sim_force_pairs
-                + squared_distance_force_pairs_norm
+                + squared_distance_force_norms
 #                + 0.01 * self_force_norm
                 + force_to_rij_cosine_loss
             )
