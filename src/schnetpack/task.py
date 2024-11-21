@@ -8,7 +8,7 @@ from torchmetrics import Metric
 
 from schnetpack.model.base import AtomisticModel
 
-__all__ = ["ModelOutput", "AtomisticTask", "UnsupervisedModelOutput", "Maltes_partial_forces_loss"]
+__all__ = ["ModelOutput", "AtomisticTask", "UnsupervisedModelOutput", "Maltes_partial_forces_loss", "Maltes_norm_loss"]
 
 
 class Maltes_partial_forces_loss(nn.Module):
@@ -65,6 +65,11 @@ class Maltes_partial_forces_loss(nn.Module):
             )
             final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
+
+
+class Maltes_norm_loss(nn.Module):
+    def __call__(self, pred, batch):
+        return pred['activations'].norm(dim=-1).mean()
 
 
 class ModelOutput(nn.Module):
