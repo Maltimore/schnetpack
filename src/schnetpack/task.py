@@ -229,7 +229,7 @@ class AtomisticTask(pl.LightningModule):
         results = self.model(inputs)
         return results
 
-    def loss_fn(self, pred, batch):
+    def supervised_loss_fn(self, pred, batch):
         loss = 0.0
         for output in self.outputs:
             if isinstance(output, UnsupervisedModelOutput):
@@ -277,11 +277,11 @@ class AtomisticTask(pl.LightningModule):
             batch_new_reference = {k: v for k, v in batch_.items()}
             pred = self.predict_without_postprocessing(batch_new_reference)
             pred, targets = self.apply_constraints(pred, batch_)
-            loss = self.loss_fn(pred, targets)
-            self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
+            supervised_loss = self.supervised_loss_fn(pred, targets)
+            self.log("train_loss", supervised_loss, on_step=True, on_epoch=False, prog_bar=False)
             self.log_metrics(pred, targets, "train")
         else:
-            loss = 0.
+            supervised_loss = 0.
 
         # UNSUPERVISED
         if batch['unsupervised'] is not None:
@@ -290,9 +290,10 @@ class AtomisticTask(pl.LightningModule):
             pred = self.predict_without_postprocessing(batch_new_reference)
             pred, targets = self.apply_constraints(pred, batch_)
             unsupervised_loss = self.unsupervised_loss_fn(pred, targets)
+            self.log("unsupervised_train_loss", supervised_loss, on_step=True, on_epoch=False, prog_bar=False)
         else:
             unsupervised_loss = 0.
-        return loss + unsupervised_loss
+        return supervised_loss + unsupervised_loss
 
 
     def validation_step(self, batch, batch_idx):
@@ -307,7 +308,7 @@ class AtomisticTask(pl.LightningModule):
         pred = self.predict_without_postprocessing(batch_new_reference)
         pred, targets = self.apply_constraints(pred, batch)
 
-        loss = self.loss_fn(pred, targets)
+        loss = self.supervised_loss_fn(pred, targets)
 
         self.log(
             "val_loss",
@@ -333,7 +334,7 @@ class AtomisticTask(pl.LightningModule):
         pred = self.predict_without_postprocessing(batch_new_reference)
         pred, targets = self.apply_constraints(pred, batch)
 
-        loss = self.loss_fn(pred, targets)
+        loss = self.supervised_loss_fn(pred, targets)
 
         self.log(
             "test_loss",
