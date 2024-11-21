@@ -8,11 +8,24 @@ from torch.autograd import grad
 from schnetpack.nn.utils import derivative_from_molecular, derivative_from_atomic
 import schnetpack.properties as properties
 
-__all__ = ["Forces", "Strain", "Response"]
+__all__ = ["Forces", "Strain", "Response", "JustAddToOutput"]
 
 
 class ResponseException(Exception):
     pass
+
+
+class JustAddToOutput(nn.Module):
+    """
+    Just adds a predicted quantity to the outputs of the model.
+    """
+
+    def __init__(self, key_to_add):
+        super(JustAddToOutput, self).__init__()
+        self.model_outputs = [key_to_add,]
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        return inputs
 
 
 class Forces(nn.Module):
