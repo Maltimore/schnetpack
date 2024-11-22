@@ -15,21 +15,20 @@ class Maltes_partial_forces_loss(nn.Module):
     def __call__(self, pred, batch):
         if 'partial_forces' not in pred.keys():
             return torch.tensor(0.0)
-        if not torch.equal(batch['_n_atoms'], batch['_n_atoms'][0] * torch.ones_like(batch['_n_atoms'])):
-            raise ValueError("This only works if all molecules in the batch have the same amount of atoms")
-        else:
-            n_atoms = batch['_n_atoms'][0].item()
 
+        partial_forces_list = torch.split(pred['partial_forces'], batch['_n_atoms'].tolist(), dim=0)
+        positions_list = torch.split(batch['_positions'], batch['_n_atoms'].tolist(), dim=0)
+        diag_zeroing_masks = [
+            torch.ones(
+                (batch['_n_atoms'][molecule_idx].item(), batch['_n_atoms'][molecule_idx]),
+                device=positions_list[0].device,
+                dtype=positions_list[0].dtype
+            ) - torch.eye(batch['_n_atoms'][molecule_idx].item(), device=positions_list[0].device)
+            for molecule_idx in range(len(batch['_n_atoms']))
+        ]
         loss_terms_list = []
-        partial_forces_list = torch.split(pred['partial_forces'], n_atoms, dim=0)
-        positions_list = torch.split(batch['_positions'], n_atoms, dim=0)
-        diag_zeroing_mask = torch.ones(
-            (n_atoms, n_atoms),
-            device=positions_list[0].device,
-            dtype=positions_list[0].dtype
-        ) - torch.eye(n_atoms, device=positions_list[0].device)
         for molecule_idx in range(len(batch['_n_atoms'])):
-            partials = partial_forces_list[molecule_idx]
+            partials = partial_forces_list[molecule_idx][:, 0:batch['_n_atoms'][molecule_idx].item(), :]
             positions = positions_list[molecule_idx]
             r_ij = positions[:, None, :] - positions[None, :, :]
             D = torch.norm(r_ij, dim=2)
@@ -41,7 +40,7 @@ class Maltes_partial_forces_loss(nn.Module):
             ).div((D + 1e-3)).sum(axis=0).mean()
             # the cosine on the diagonal should be 1, where the gradient is 0,
             # but I don't trust it so we multiply the diagonal by 0 to be sure
-            cosine_sim_force_pairs = cosine_sim_force_pairs * diag_zeroing_mask
+            cosine_sim_force_pairs = (cosine_sim_force_pairs * diag_zeroing_masks[molecule_idx]).mean()
             # loss for making sure nurms of pairs are equal
             squared_distance_force_norms = ((
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
@@ -55,15 +54,15 @@ class Maltes_partial_forces_loss(nn.Module):
                 eps=1e-18,
             )
             # just to be sure that the diagonal elements do not contribute to the grad
-            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_mask
+            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_masks[molecule_idx]
             force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
             loss_terms_list.append(
-                cosine_sim_force_pairs
+                cosine_sim_force_pairs.mean()
                 + squared_distance_force_norms
 #                + 0.01 * self_force_norm
                 + force_to_rij_cosine_loss
             )
-            final_loss = torch.stack(loss_terms_list).mean()
+        final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
 
 

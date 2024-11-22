@@ -80,19 +80,21 @@ class Forces(nn.Module):
 
         if self.calc_partial_forces:
 
-            n_atoms = inputs['_n_atoms'][0]
+            device = inputs['_n_atoms'].device
             batch_size = len(inputs['_n_atoms'])
-            batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), n_atoms)
+            batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
             partial_forces_list = []
-            for j in range(n_atoms):
+            for j in range(max(inputs['_n_atoms']).item()):
+                molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= j+1]
                 forces_row = grad(
-                    outputs=[batch_split_energy_contributions[i][j] for i in range(batch_size)],
+                    outputs=[batch_split_energy_contributions[sample_idx][j]
+                        for sample_idx in molecules_with_enough_atoms],
                     inputs=[inputs['_positions']],
                     create_graph=self.training,
                     retain_graph=True,
                 )[0]
                 partial_forces_list.append(forces_row)
-            partial_forces = torch.cat(torch.split(torch.stack(partial_forces_list), n_atoms, dim=1))
+            partial_forces = torch.stack(partial_forces_list).transpose(1, 0)
             # forces are negative gradient
             partial_forces = - partial_forces
             inputs[self.partial_forces_key] = partial_forces
