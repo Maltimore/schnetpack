@@ -54,7 +54,7 @@ def random_split(dsize: int, *split_sizes: Union[int, float]) -> List[torch.tens
     """
     split_sizes = absolute_split_sizes(dsize, split_sizes)
     offsets = torch.cumsum(torch.tensor(split_sizes), dim=0)
-    indices = torch.randperm(sum(split_sizes)).tolist()
+    indices = torch.randperm(dsize).tolist()
     partition_sizes_idx = [
         indices[offset - length : offset]
         for offset, length in zip(offsets, split_sizes)
