@@ -123,16 +123,17 @@ def train(config: DictConfig):
     datamodule.setup()
 
     # unsupervised data
-    log.info(f"Instantiating unsupervised datamodule <{config.data._target_}>")
-    datamodule_unsupervised: LightningDataModule = hydra.utils.instantiate(
-        config.data_unsupervised,
-        train_sampler_cls=(
-            str2class(config.data_unsupervised.train_sampler_cls)
-            if config.data_unsupervised.train_sampler_cls
-            else None
-        ),
-    )
-    datamodule_unsupervised.setup()
+    if 'data_unsupervised' in config.keys():
+        log.info(f"Instantiating unsupervised datamodule <{config.data._target_}>")
+        datamodule_unsupervised: LightningDataModule = hydra.utils.instantiate(
+            config.data_unsupervised,
+            train_sampler_cls=(
+                str2class(config.data_unsupervised.train_sampler_cls)
+                if config.data_unsupervised.train_sampler_cls
+                else None
+            ),
+        )
+        datamodule_unsupervised.setup()
 
     # Init model
     log.info(f"Instantiating model <{config.model._target_}>")
@@ -187,11 +188,13 @@ def train(config: DictConfig):
     # Train the model
     log.info("Starting training.")
     from pytorch_lightning.utilities import CombinedLoader
+    iterables = {'supervised': datamodule.train_dataloader()}
+    try:
+        iterables['unsupervised'] = datamodule_unsupervised.train_dataloader()
+    except NameError:
+        pass
     train_dataloaders = CombinedLoader(
-        iterables={
-            'supervised': datamodule.train_dataloader(),
-            'unsupervised': datamodule_unsupervised.train_dataloader(),
-        },
+        iterables=iterables,
         mode='max_size_cycle'
     )
     trainer.fit(model=task, train_dataloaders=train_dataloaders, val_dataloaders=datamodule.val_dataloader(), ckpt_path=config.run.ckpt_path)
