@@ -53,7 +53,7 @@ class Elements(nn.Module):
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         q = inputs['scalar_representation']
         mu = inputs["vector_representation"]
-        idx_j = inputs["_idx_j"]
+        idx_i = inputs["_idx_i"]
         r_ij = inputs[properties.Rij]
 
         pred_element_i_from_i = self.predict_element_i_from_i(q)
@@ -62,7 +62,7 @@ class Elements(nn.Module):
         full_embedding = torch.cat(
             [
                 rij_embedding,
-                torch.cat([q, mu_embedding], dim=1)[idx_j]
+                torch.cat([q, mu_embedding], dim=1)[idx_i]
             ],
             dim=1,
         )
