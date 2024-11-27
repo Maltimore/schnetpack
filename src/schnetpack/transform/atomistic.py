@@ -13,14 +13,45 @@ __all__ = [
     "AddOffsets",
     "RemoveOffsets",
     "ScaleProperty",
+    "Maltes_neighboring_elements_labels",
 ]
+
+
+class Maltes_neighboring_elements_labels(Transform):
+    is_preprocessor: bool = True
+    is_postprocessor: bool = False
+
+    def __init__(self):
+        super().__init__()
+        self.element_mapping = torch.tensor([
+            -1,
+            0, # H
+            -1,
+            -1,
+            -1,
+            -1,
+            1, # C
+            2, # N
+            3, # O
+            4, # F
+        ])
+
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        elements = inputs[structure.Z]
+        inputs['elements_as_labels'] = self.element_mapping[inputs[structure.Z]]
+        inputs['idx_j_elements_as_labels'] = self.element_mapping[inputs[structure.Z][inputs['_idx_j']]]
+        if torch.any(inputs['elements_as_labels'] < 0) or torch.any(inputs['idx_j_elements_as_labels'] < 0):
+            raise Exception('neighbor elems computation wrong')
+        return inputs
 
 
 class SubtractCenterOfMass(Transform):
     """
     Subtract center of mass from positions.
     """
-
     is_preprocessor: bool = True
     is_postprocessor: bool = False
 

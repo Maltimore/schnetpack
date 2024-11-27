@@ -288,7 +288,7 @@ class AtomisticTask(pl.LightningModule):
             supervised_loss = 0.
 
         # UNSUPERVISED
-        if batch['unsupervised'] is not None:
+        if 'unsuperbised' in batch.keys():
             batch_ = batch['unsupervised']
             batch_new_reference = {k: v for k, v in batch_.items()}
             pred = self.predict_without_postprocessing(batch_new_reference)

@@ -6,13 +6,72 @@ import torch.nn as nn
 from torch.autograd import grad
 
 from schnetpack.nn.utils import derivative_from_molecular, derivative_from_atomic
+import torch.nn.functional as F
 import schnetpack.properties as properties
+import schnetpack.nn as snn
 
-__all__ = ["Forces", "Strain", "Response", "JustAddToOutput"]
+__all__ = ["Forces", "Strain", "Response", "JustAddToOutput", "Elements"]
 
 
 class ResponseException(Exception):
     pass
+
+
+class Elements(nn.Module):
+    """
+    Just adds a predicted quantity to the outputs of the model.
+    """
+
+    def __init__(self, n_atom_basis):
+        super(Elements, self).__init__()
+        self.model_outputs = ['pred_element_i_from_i', 'pred_element_j_from_i']
+
+        self.rij_to_embedding = snn.Dense(
+            3,
+            n_atom_basis,
+        )
+        self.mu_to_embedding = snn.Dense(
+            3,
+            n_atom_basis,
+        )
+        self.neighb_hidden_layer = snn.Dense(
+            3 * n_atom_basis,
+            n_atom_basis,
+            activation=F.silu,
+        )
+        n_possible_elements = 5
+        self.predict_element_j_from_i = snn.Dense(
+            n_atom_basis,
+            n_possible_elements,
+        )
+        self.predict_element_i_from_i = snn.Dense(
+            n_atom_basis,
+            n_possible_elements,
+        )
+
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        q = inputs['scalar_representation']
+        mu = inputs["vector_representation"]
+        idx_j = inputs["_idx_j"]
+        r_ij = inputs[properties.Rij]
+
+        pred_element_i_from_i = self.predict_element_i_from_i(q)
+        rij_embedding = self.rij_to_embedding(r_ij)
+        mu_embedding = self.mu_to_embedding(mu.transpose(1, 2)).sum(axis=1)
+        full_embedding = torch.cat(
+            [
+                rij_embedding,
+                torch.cat([q, mu_embedding], dim=1)[idx_j]
+            ],
+            dim=1,
+        )
+        full_embedding = self.neighb_hidden_layer(full_embedding)
+        pred_element_j_from_i = self.predict_element_j_from_i(full_embedding)
+
+        inputs["pred_element_i_from_i"] = pred_element_i_from_i
+        inputs["pred_element_j_from_i"] = pred_element_j_from_i
+        return inputs
 
 
 class JustAddToOutput(nn.Module):
