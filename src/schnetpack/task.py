@@ -124,7 +124,6 @@ class ModelOutput(nn.Module):
         if self.loss_weight == 0 or self.loss_fn is None:
             return 0.0
 
-
         loss = self.loss_weight * self.loss_fn(
             pred[self.name], target[self.target_property]
         )
@@ -276,7 +275,7 @@ class AtomisticTask(pl.LightningModule):
 #            pass
 
         # SUPERVISED
-        if batch['supervised'] is not None:
+        if 'supervised' in batch.keys():
             batch_ = batch['supervised']
             batch_new_reference = {k: v for k, v in batch_.items()}
             pred = self.predict_without_postprocessing(batch_new_reference)
