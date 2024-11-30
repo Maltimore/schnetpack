@@ -14,6 +14,7 @@ globals:
   aggregation: sum
 
 data:
+  name: default
   transforms:
     - _target_: schnetpack.transform.SubtractCenterOfMass
     - _target_: schnetpack.transform.RemoveOffsets
@@ -47,7 +48,7 @@ model:
       add_atomrefs: True
 
 task:
-  outputs:
+  loss_modules:
     - _target_: schnetpack.task.ModelOutput
       name: ${globals.property}
       loss_fn:

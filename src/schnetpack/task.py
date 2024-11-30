@@ -8,7 +8,7 @@ from torchmetrics import Metric
 
 from schnetpack.model.base import AtomisticModel
 
-__all__ = ["ModelOutput", "AtomisticTask", "UnsupervisedModelOutput", "Maltes_partial_forces_loss", "Maltes_norm_loss"]
+__all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedLossModule", "AtomisticTask", "Maltes_partial_forces_loss", "Maltes_norm_loss"]
 
 
 class Maltes_partial_forces_loss(nn.Module):
@@ -71,7 +71,7 @@ class Maltes_norm_loss(nn.Module):
         return pred['activations'].norm(dim=-1).mean()
 
 
-class ModelOutput(nn.Module):
+class LossModule(nn.Module):
     """
     Defines an output of a model, including mappings to a loss function and weight for training
     and metrics to be logged.
@@ -80,11 +80,12 @@ class ModelOutput(nn.Module):
     def __init__(
         self,
         name: str,
-        loss_fn: Optional[nn.Module] = None,
+        loss_fn: nn.Module,
         loss_weight: float = 1.0,
+        dataset_keys: List[str] = ['default'],
         metrics: Optional[Dict[str, Metric]] = None,
         constraints: Optional[List[torch.nn.Module]] = None,
-        target_property: Optional[str] = None,
+        prediction_key: Optional[str] = None,
     ):
         """
         Args:
@@ -103,7 +104,7 @@ class ModelOutput(nn.Module):
         """
         super().__init__()
         self.name = name
-        self.target_property = target_property or name
+        self.dataset_keys = dataset_keys
         self.loss_fn = loss_fn
         self.loss_weight = loss_weight
         if metrics is not None:
@@ -121,52 +122,93 @@ class ModelOutput(nn.Module):
         self.constraints = constraints or []
 
     def calculate_loss(self, pred, target):
-        if self.loss_weight == 0 or self.loss_fn is None:
-            return 0.0
+        raise NotImplementedError
 
+    def update_metrics(self, pred, target, subset):
+        raise NotImplementedError
+
+
+class DirectComparisonLossModule(LossModule):
+    def __init__(
+        self,
+        name: str,
+        loss_fn: nn.Module,
+        prediction_key: str,
+        target_key: str,
+        loss_weight: float = 1.0,
+        metrics: Optional[Dict[str, Metric]] = None,
+        constraints: Optional[List[torch.nn.Module]] = None,
+        dataset_keys: Optional[List[str]] = ['default'],
+    ):
+        """
+        Args:
+            name: name of output in results dict
+            target_property: Name of target in training batch. Only required for supervised training.
+                If not given, the output name is assumed to also be the target name.
+            loss_fn: function to compute the loss
+            loss_weight: loss weight in the composite loss: $l = w_1 l_1 + \dots + w_n l_n$
+            metrics: dictionary of metrics with names as keys
+            constraints:
+                constraint class for specifying the usage of model output in the loss function and logged metrics,
+                while not changing the model output itself. Essentially, constraints represent postprocessing transforms
+                that do not affect the model output but only change the loss value. For example, constraints can be used
+                to neglect or weight some atomic forces in the loss function. This may be useful when training on
+                systems, where only some forces are crucial for its dynamics.
+        """
+        super().__init__(
+            name=name,
+            loss_fn=loss_fn,
+            loss_weight=loss_weight,
+            metrics=metrics,
+            constraints=constraints,
+            dataset_keys=dataset_keys,
+        )
+        self.prediction_key = prediction_key
+        self.target_key = target_key
+
+    def calculate_loss(self, pred, target):
+        if self.prediction_key is None or self.target_key is None:
+            raise Exception('prediction_key and target_key need to be set')
+        if self.loss_weight == 0:
+            return 0.0
         loss = self.loss_weight * self.loss_fn(
-            pred[self.name], target[self.target_property]
+            pred[self.prediction_key], target[self.target_key]
         )
         return loss
 
     def update_metrics(self, pred, target, subset):
         for metric in self.metrics[subset].values():
-            metric(pred[self.name], target[self.target_property])
+            metric(pred[self.prediction_key], target[self.target_key])
 
 
+class ModelOutput(DirectComparisonLossModule):
+     """
+     DEPRECATED. Use DirectComparisonLossModule instead
+     """
+     def __init__(
+         self,
+         name: str,
+         loss_fn: Optional[nn.Module] = None,
+         loss_weight: float = 1.0,
+         metrics: Optional[Dict[str, Metric]] = None,
+         constraints: Optional[List[torch.nn.Module]] = None,
+         target_property: Optional[str] = None,
+     ):
+        warnings.warn('ModelOutput is deprecated. Use LossModule instead.')
+        target_property = target_property if target_property is not None else name
+        super().__init__(
+            name=name,
+            loss_fn=loss_fn,
+            loss_weight=loss_weight,
+            prediction_key=name,
+            target_key=target_property,
+            metrics=metrics,
+            constraints=constraints,
+            dataset_keys=['default'],
+        )
 
-class UnsupervisedModelOutput(ModelOutput):
-    """
-    Defines an unsupervised output of a model, i.e. an unsupervised loss or a regularizer
-    that do not depend on label data. It includes mappings to the loss function,
-    a weight for training and metrics to be logged.
-    """
-    def __init__(
-        self,
-        name: str,
-        loss_fn: Optional[nn.Module] = None,
-        loss_weight: float = 1.0,
-        metrics: Optional[Dict[str, Metric]] = None,
-        constraints: Optional[List[torch.nn.Module]] = None,
-    ):
-        nn.Module.__init__(self)
-        self.name = name
-        self.loss_fn = loss_fn
-        self.loss_weight = loss_weight
-        if metrics is not None:
-            self.train_metrics = nn.ModuleDict(metrics)
-            self.val_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
-            self.test_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
-            self.metrics = {
-                "train": self.train_metrics,
-                "val": self.val_metrics,
-                "test": self.test_metrics,
-            }
-        else:
-            self.metrics = {}
 
-        self.constraints = constraints or []
-
+class AdvancedLossModule(LossModule):
     def calculate_loss(self, pred, batch):
         if self.loss_weight == 0 or self.loss_fn is None:
             return 0.0
@@ -187,7 +229,7 @@ class AtomisticTask(pl.LightningModule):
     def __init__(
         self,
         model: AtomisticModel,
-        outputs: List[ModelOutput],
+        loss_modules: List[LossModule],
         optimizer_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_args: Optional[Dict[str, Any]] = None,
         scheduler_cls: Optional[Type] = None,
@@ -214,11 +256,22 @@ class AtomisticTask(pl.LightningModule):
         self.scheduler_cls = scheduler_cls
         self.scheduler_kwargs = scheduler_args
         self.schedule_monitor = scheduler_monitor
-        self.outputs = nn.ModuleList(outputs)
-
         self.grad_enabled = len(self.model.required_derivatives) > 0
         self.lr = optimizer_args["lr"]
         self.warmup_steps = warmup_steps
+        self.dataset_key_to_loss_modules = {}
+        # we never use self.loss_modules but it is necessary to have
+        # self.loss_modules such that the loss_modules are a direct child of
+        # this lightning module. For instance, only direct children are placed
+        # on the right device.
+        self.loss_modules = nn.ModuleList(loss_modules)
+        for loss_module in loss_modules:
+            for dataset_key in loss_module.dataset_keys:
+                if dataset_key not in self.dataset_key_to_loss_modules.keys():
+                    self.dataset_key_to_loss_modules[dataset_key] = [loss_module]
+                else:
+                    self.dataset_key_to_loss_modules[dataset_key].append(loss_module)
+
         self.save_hyperparameters()
 
     def add_datamodule(self, datamodule):
@@ -232,86 +285,64 @@ class AtomisticTask(pl.LightningModule):
         results = self.model(inputs)
         return results
 
-    def supervised_loss_fn(self, pred, batch):
+    def calculate_loss_per_dataset(self, pred, batch, dataset_key):
         loss = 0.0
-        for output in self.outputs:
-            if isinstance(output, UnsupervisedModelOutput):
-                continue
-            loss += output.calculate_loss(pred, batch)
+        for loss_module in self.dataset_key_to_loss_modules[dataset_key]:
+            loss += loss_module.calculate_loss(pred, batch)
         return loss
 
-    def unsupervised_loss_fn(self, pred, batch):
-        loss = 0.0
-        for output in self.outputs:
-            if not isinstance(output, UnsupervisedModelOutput):
+    def log_metrics(self, pred, targets, subset, dataset_key):
+        for loss_module in self.dataset_key_to_loss_modules[dataset_key]:
+            if subset not in loss_module.metrics.keys():
                 continue
-            loss += output.calculate_loss(pred, batch)
-        return loss
-
-    def log_metrics(self, pred, targets, subset):
-        for output in self.outputs:
-            if subset not in output.metrics.keys():
-                continue
-            output.update_metrics(pred, targets, subset)
-            for metric_name, metric in output.metrics[subset].items():
+            loss_module.update_metrics(pred, targets, subset)
+            for metric_name, metric in loss_module.metrics[subset].items():
                 self.log(
-                    f"{subset}_{output.name}_{metric_name}",
+                    f"{subset}_{dataset_key}_{loss_module.name}_{metric_name}",
                     metric,
                     on_step=(subset == "train"),
                     on_epoch=(subset != "train"),
                     prog_bar=False,
                 )
 
-    def apply_constraints(self, pred, targets):
-        for output in self.outputs:
-            for constraint in output.constraints:
-                pred, targets = constraint(pred, targets, output)
+    def apply_constraints(self, pred, targets, dataset_key):
+        for loss_module in self.dataset_key_to_loss_modules[dataset_key]:
+            for constraint in loss_module.constraints:
+                pred, targets = constraint(pred, targets, loss_module)
         return pred, targets
 
     def training_step(self, batch, batch_idx):
-#        try:
-#            targets["considered_atoms"] = batch["considered_atoms"]
-#        except:
-#            pass
-
-        # SUPERVISED
-        if 'supervised' in batch.keys():
-            batch_ = batch['supervised']
+        losses_each_dataset = []
+        for dataset_key in batch.keys():
+            batch_ = batch[dataset_key]
+            # because the forward function of the model overwrites part
+            # of the values in its input, we create a new reference to
+            # all the values
             batch_new_reference = {k: v for k, v in batch_.items()}
             pred = self.predict_without_postprocessing(batch_new_reference)
-            pred, targets = self.apply_constraints(pred, batch_)
-            supervised_loss = self.supervised_loss_fn(pred, targets)
-            self.log("train_loss", supervised_loss, on_step=True, on_epoch=False, prog_bar=False)
-            self.log_metrics(pred, targets, "train")
-        else:
-            supervised_loss = 0.
-
-        # UNSUPERVISED
-        if 'unsuperbised' in batch.keys():
-            batch_ = batch['unsupervised']
-            batch_new_reference = {k: v for k, v in batch_.items()}
-            pred = self.predict_without_postprocessing(batch_new_reference)
-            pred, targets = self.apply_constraints(pred, batch_)
-            unsupervised_loss = self.unsupervised_loss_fn(pred, targets)
-            self.log("unsupervised_train_loss", supervised_loss, on_step=True, on_epoch=False, prog_bar=False)
-        else:
-            unsupervised_loss = 0.
-        return supervised_loss + unsupervised_loss
-
+            pred, targets = self.apply_constraints(pred, batch_, dataset_key)
+            loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
+            losses_each_dataset.append(loss)
+            self.log_metrics(pred, targets, "train", dataset_key=dataset_key)
+        loss = sum(losses_each_dataset)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=False)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         torch.set_grad_enabled(self.grad_enabled)
-
-        try:
-            targets["considered_atoms"] = batch["considered_atoms"]
-        except:
-            pass
-
-        batch_new_reference = {k: v for k, v in batch.items()}
-        pred = self.predict_without_postprocessing(batch_new_reference)
-        pred, targets = self.apply_constraints(pred, batch)
-
-        loss = self.supervised_loss_fn(pred, targets)
+        losses_each_dataset = []
+        for dataset_key in batch.keys():
+            batch_ = batch[dataset_key]
+            # because the forward function of the model overwrites part
+            # of the values in its input, we create a new reference to
+            # all the values
+            batch_new_reference = {k: v for k, v in batch_.items()}
+            pred = self.predict_without_postprocessing(batch_new_reference)
+            pred, targets = self.apply_constraints(pred, batch_, dataset_key)
+            loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
+            losses_each_dataset.append(loss)
+            self.log_metrics(pred, targets, "val", dataset_key='default')
+        loss = sum(losses_each_dataset)
 
         self.log(
             "val_loss",
@@ -319,25 +350,25 @@ class AtomisticTask(pl.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
-            batch_size=len(batch["_idx"]),
+            batch_size=len(batch_["_idx"]),
         )
-        self.log_metrics(pred, targets, "val")
-
         return {"val_loss": loss}
 
     def test_step(self, batch, batch_idx):
         torch.set_grad_enabled(self.grad_enabled)
-
-        try:
-            targets["considered_atoms"] = batch["considered_atoms"]
-        except:
-            pass
-
-        batch_new_reference = {k: v for k, v in batch.items()}
-        pred = self.predict_without_postprocessing(batch_new_reference)
-        pred, targets = self.apply_constraints(pred, batch)
-
-        loss = self.supervised_loss_fn(pred, targets)
+        losses_each_dataset = []
+        for dataset_key in batch.keys():
+            batch_ = batch[dataset_key]
+            # because the forward function of the model overwrites part
+            # of the values in its input, we create a new reference to
+            # all the values
+            batch_new_reference = {k: v for k, v in batch_.items()}
+            pred = self.predict_without_postprocessing(batch_new_reference)
+            pred, targets = self.apply_constraints(pred, batch_, dataset_key)
+            loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
+            losses_each_dataset.append(loss)
+            self.log_metrics(pred, targets, "val", dataset_key='default')
+        loss = sum(losses_each_dataset)
 
         self.log(
             "test_loss",
@@ -345,9 +376,8 @@ class AtomisticTask(pl.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
-            batch_size=len(batch["_idx"]),
+            batch_size=len(batch_["_idx"]),
         )
-        self.log_metrics(pred, targets, "test")
         return {"test_loss": loss}
 
     def predict_without_postprocessing(self, batch):

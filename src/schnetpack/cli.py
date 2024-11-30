@@ -8,10 +8,11 @@ import random
 
 import torch
 import hydra
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict
 from pytorch_lightning import LightningModule, LightningDataModule, Callback, Trainer
 from pytorch_lightning import seed_everything
 from pytorch_lightning.loggers.logger import Logger
+from pytorch_lightning.utilities import CombinedLoader
 
 import schnetpack as spk
 from schnetpack.utils import str2class
@@ -111,29 +112,25 @@ def train(config: DictConfig):
         os.makedirs(config.run.data_dir)
 
     # Init Lightning datamodule
-    log.info(f"Instantiating datamodule <{config.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(
-        config.data,
-        train_sampler_cls=(
-            str2class(config.data.train_sampler_cls)
-            if config.data.train_sampler_cls
-            else None
-        ),
-    )
-    datamodule.setup()
-
-    # unsupervised data
-    if 'data_unsupervised' in config.keys():
-        log.info(f"Instantiating unsupervised datamodule <{config.data._target_}>")
-        datamodule_unsupervised: LightningDataModule = hydra.utils.instantiate(
-            config.data_unsupervised,
+#    log.info(f"Instantiating datamodules <{config.data._target_}>")
+    datamodule_dict = {}
+    if isinstance(config.data, ListConfig):
+        dataset_configs = config.data
+    else:
+        dataset_configs = [config.data]
+    for dataset_config in dataset_configs:
+        with open_dict(dataset_config):
+            dataset_name = dataset_config.pop('name')
+        datamodule: LightningDataModule = hydra.utils.instantiate(
+            config.data,
             train_sampler_cls=(
-                str2class(config.data_unsupervised.train_sampler_cls)
-                if config.data_unsupervised.train_sampler_cls
+                str2class(dataset_config.train_sampler_cls)
+                if dataset_config.train_sampler_cls
                 else None
             ),
         )
-        datamodule_unsupervised.setup()
+        datamodule.setup()
+        datamodule_dict[dataset_name] = datamodule
 
     # Init model
     log.info(f"Instantiating model <{config.model._target_}>")
@@ -187,21 +184,29 @@ def train(config: DictConfig):
 
     # Train the model
     log.info("Starting training.")
-    from pytorch_lightning.utilities import CombinedLoader
-    iterables = {'supervised': datamodule.train_dataloader()}
-    try:
-        iterables['unsupervised'] = datamodule_unsupervised.train_dataloader()
-    except NameError:
-        pass
-    train_dataloaders = CombinedLoader(
-        iterables=iterables,
-        mode='max_size_cycle'
+    trainer.fit(
+        model=task,
+        train_dataloaders=CombinedLoader(
+            iterables={dataset_key: datamodule.train_dataloader() for dataset_key, datamodule in datamodule_dict.items()},
+            mode='max_size_cycle'
+        ),
+        val_dataloaders=CombinedLoader(
+            iterables={dataset_key: datamodule.val_dataloader() for dataset_key, datamodule in datamodule_dict.items()},
+            mode='max_size_cycle'
+        ),
+        ckpt_path=config.run.ckpt_path
     )
-    trainer.fit(model=task, train_dataloaders=train_dataloaders, val_dataloaders=datamodule.val_dataloader(), ckpt_path=config.run.ckpt_path)
 
     # Evaluate model on test set after training
     log.info("Starting testing.")
-    trainer.test(model=task, datamodule=datamodule, ckpt_path="best")
+    trainer.test(
+        model=task,
+        test_dataloaders=CombinedLoader(
+            iterables={dataset_key: datamodule.test_dataloader() for dataset_key, datamodule in datamodule_dict.items()},
+            mode='max_size_cycle'
+        ),
+        ckpt_path="best"
+    )
 
     # Store best model
     best_path = trainer.checkpoint_callback.best_model_path
