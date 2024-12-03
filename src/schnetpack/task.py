@@ -229,7 +229,8 @@ class AtomisticTask(pl.LightningModule):
     def __init__(
         self,
         model: AtomisticModel,
-        loss_modules: List[LossModule],
+        loss_modules: List[LossModule] = None, # required, but for now, users may still use outputs
+        outputs: List[ModelOutput] = None, # DEPRECTED
         optimizer_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_args: Optional[Dict[str, Any]] = None,
         scheduler_cls: Optional[Type] = None,
@@ -260,6 +261,12 @@ class AtomisticTask(pl.LightningModule):
         self.lr = optimizer_args["lr"]
         self.warmup_steps = warmup_steps
         self.dataset_key_to_loss_modules = {}
+        if outputs is not None:
+            warnings.warn('task.outputs is deprecated! Use loss_modules.')
+            if loss_modules is None:
+                loss_modules = outputs
+            else:
+                raise ValueError('Not both outputs and loss_modules can be specified')
         # we never use self.loss_modules but it is necessary to have
         # self.loss_modules such that the loss_modules are a direct child of
         # this lightning module. For instance, only direct children are placed
@@ -291,18 +298,23 @@ class AtomisticTask(pl.LightningModule):
             loss += loss_module.calculate_loss(pred, batch)
         return loss
 
-    def log_metrics(self, pred, targets, subset, dataset_key):
+    def log_metrics(self, pred, targets, subset, dataset_key, batch_size):
         for loss_module in self.dataset_key_to_loss_modules[dataset_key]:
             if subset not in loss_module.metrics.keys():
                 continue
             loss_module.update_metrics(pred, targets, subset)
             for metric_name, metric in loss_module.metrics[subset].items():
+                if dataset_key is 'default':
+                    logging_key = f"{subset}_{loss_module.name}_{metric_name}"
+                else:
+                    logging_key = f"{subset}_{dataset_key}_{loss_module.name}_{metric_name}"
                 self.log(
-                    f"{subset}_{dataset_key}_{loss_module.name}_{metric_name}",
+                    logging_key,
                     metric,
-                    on_step=(subset == "train"),
-                    on_epoch=(subset != "train"),
+                    on_step=False,
+                    on_epoch=True,
                     prog_bar=False,
+                    batch_size=batch_size,
                 )
 
     def apply_constraints(self, pred, targets, dataset_key):
@@ -323,9 +335,16 @@ class AtomisticTask(pl.LightningModule):
             pred, targets = self.apply_constraints(pred, batch_, dataset_key)
             loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
             losses_each_dataset.append(loss)
-            self.log_metrics(pred, targets, "train", dataset_key=dataset_key)
+            self.log_metrics(pred, targets, "train", dataset_key=dataset_key, batch_size=len(batch_['_idx']))
         loss = sum(losses_each_dataset)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=False)
+        self.log(
+            f"train_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=len(batch_["_idx"]),
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -341,11 +360,10 @@ class AtomisticTask(pl.LightningModule):
             pred, targets = self.apply_constraints(pred, batch_, dataset_key)
             loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
             losses_each_dataset.append(loss)
-            self.log_metrics(pred, targets, "val", dataset_key='default')
+            self.log_metrics(pred, targets, "val", dataset_key=dataset_key, batch_size=len(batch_['_idx']))
         loss = sum(losses_each_dataset)
-
         self.log(
-            "val_loss",
+            f"val_loss",
             loss,
             on_step=False,
             on_epoch=True,
@@ -367,11 +385,10 @@ class AtomisticTask(pl.LightningModule):
             pred, targets = self.apply_constraints(pred, batch_, dataset_key)
             loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
             losses_each_dataset.append(loss)
-            self.log_metrics(pred, targets, "val", dataset_key='default')
+            self.log_metrics(pred, targets, "test", dataset_key=dataset_key, batch_size=len(batch_['_idx']))
         loss = sum(losses_each_dataset)
-
         self.log(
-            "test_loss",
+            f"test_loss",
             loss,
             on_step=False,
             on_epoch=True,

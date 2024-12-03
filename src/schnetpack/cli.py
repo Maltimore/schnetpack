@@ -53,12 +53,21 @@ def train(config: DictConfig):
         )
         return
 
-    if not ("model" in config and "data" in config):
+    if not "model" in config: 
         log.error(
             f"""
-        Config incomplete! You have to specify at least `data` and `model`!
+        Config incomplete! You did not specify "model"
         For an example, try one of our pre-defined experiments:
-        > spktrain data_dir=/data/will/be/here +experiment=qm9
+        > spktrain experiment=qm9_atomwise
+        """
+        )
+        return
+    if not "data" in config and not "datasets" in config:
+        log.error(
+            f"""
+        Config incomplete! You did not specify "data" or "datasets".
+        For an example, try one of our pre-defined experiments:
+        > spktrain experiment=qm9_atomwise
         """
         )
         return
@@ -114,15 +123,17 @@ def train(config: DictConfig):
     # Init Lightning datamodule
 #    log.info(f"Instantiating datamodules <{config.data._target_}>")
     datamodule_dict = {}
-    if isinstance(config.data, ListConfig):
-        dataset_configs = config.data
+    if 'data' in config.keys():
+        if 'name' in config.data.keys():
+            dataset_key = config.data.pop('name')
+        else:
+            dataset_key = 'default'
+        dataset_configs = {dataset_key: config.data}
     else:
-        dataset_configs = [config.data]
-    for dataset_config in dataset_configs:
-        with open_dict(dataset_config):
-            dataset_name = dataset_config.pop('name')
+        dataset_configs = config.datasets
+    for dataset_key, dataset_config in dataset_configs.items():
         datamodule: LightningDataModule = hydra.utils.instantiate(
-            config.data,
+            dataset_config,
             train_sampler_cls=(
                 str2class(dataset_config.train_sampler_cls)
                 if dataset_config.train_sampler_cls
@@ -130,7 +141,7 @@ def train(config: DictConfig):
             ),
         )
         datamodule.setup()
-        datamodule_dict[dataset_name] = datamodule
+        datamodule_dict[dataset_key] = datamodule
 
     # Init model
     log.info(f"Instantiating model <{config.model._target_}>")
