@@ -19,7 +19,7 @@ class ResponseException(Exception):
 
 class Elements(nn.Module):
     """
-    Just adds a predicted quantity to the outputs of the model.
+    Predict the elements of the neighbors
     """
 
     def __init__(self, n_atom_basis):
@@ -34,7 +34,7 @@ class Elements(nn.Module):
             3 * n_atom_basis,
             n_atom_basis,
         )
-        n_possible_elements = 5
+        n_possible_elements = 5  # FIXME TODO
         self.predict_element_j_from_i = snn.Dense(
             3 * n_atom_basis,
             n_possible_elements,
@@ -43,8 +43,8 @@ class Elements(nn.Module):
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         q = inputs['scalar_representation']
-        mu = inputs["vector_representation"]
-        idx_i = inputs["_idx_i_elem_prediction_cutoff"]
+        mu = inputs['vector_representation']
+        idx_i = inputs['_idx_i_elem_prediction_cutoff']
         r_ij = inputs['_r_ij_elem_prediction_cutoff']
 
         rij_embedding = self.rij_to_embedding(r_ij)
