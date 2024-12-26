@@ -24,14 +24,14 @@ class Elements(nn.Module):
 
     def __init__(self, n_atom_basis):
         super(Elements, self).__init__()
-        self.model_outputs = ['pred_element_i_from_i', 'pred_element_j_from_i']
+        self.model_outputs = ['pred_element_j_from_i']
 
         self.rij_to_embedding = snn.Dense(
             3,
             n_atom_basis,
         )
         self.mu_to_embedding = snn.Dense(
-            3,
+            3 * n_atom_basis,
             n_atom_basis,
         )
 #        self.neighb_hidden_layer = snn.Dense(
@@ -41,11 +41,7 @@ class Elements(nn.Module):
 #        )
         n_possible_elements = 5
         self.predict_element_j_from_i = snn.Dense(
-            n_atom_basis,
-            n_possible_elements,
-        )
-        self.predict_element_i_from_i = snn.Dense(
-            n_atom_basis,
+            3 * n_atom_basis,
             n_possible_elements,
         )
 
@@ -56,9 +52,8 @@ class Elements(nn.Module):
         idx_i = inputs["_idx_i"]
         r_ij = inputs[properties.Rij]
 
-        pred_element_i_from_i = self.predict_element_i_from_i(q)
         rij_embedding = self.rij_to_embedding(r_ij)
-        mu_embedding = self.mu_to_embedding(mu.transpose(1, 2)).sum(axis=1)
+        mu_embedding = self.mu_to_embedding(mu.reshape([mu.shape[0], -1]))
         full_embedding = torch.cat(
             [
                 rij_embedding,
@@ -69,7 +64,9 @@ class Elements(nn.Module):
 #        full_embedding = self.neighb_hidden_layer(full_embedding)
         pred_element_j_from_i = self.predict_element_j_from_i(full_embedding)
 
-        inputs["pred_element_i_from_i"] = pred_element_i_from_i
+        # debug
+        print(torch.unique(pred_element_j_from_i.argmax(dim=1), return_counts=True)[1])
+
         inputs["pred_element_j_from_i"] = pred_element_j_from_i
         return inputs
 
