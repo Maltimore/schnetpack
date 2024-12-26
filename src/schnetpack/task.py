@@ -230,7 +230,7 @@ class AtomisticTask(pl.LightningModule):
         self,
         model: AtomisticModel,
         loss_modules: List[LossModule] = None, # required, but for now, users may still use outputs
-        outputs: List[ModelOutput] = None, # DEPRECTED
+        outputs: List[ModelOutput] = None, # DEPRECATED
         optimizer_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_args: Optional[Dict[str, Any]] = None,
         scheduler_cls: Optional[Type] = None,
@@ -267,10 +267,11 @@ class AtomisticTask(pl.LightningModule):
                 loss_modules = outputs
             else:
                 raise ValueError('Not both outputs and loss_modules can be specified')
-        # we never use self.loss_modules but it is necessary to have
-        # self.loss_modules such that the loss_modules are a direct child of
-        # this lightning module. For instance, only direct children are placed
-        # on the right device.
+        # we never use self.loss_modules in the rest of this class, but it is
+        # necessary to have self.loss_modules be part of the object such that
+        # the loss_modules are a direct child of this lightning module. This is
+        # required by pytorch lightning for various things. For instance, only
+        # direct children are placed on the right device.
         self.loss_modules = nn.ModuleList(loss_modules)
         for loss_module in loss_modules:
             for dataset_key in loss_module.dataset_keys:
@@ -304,7 +305,8 @@ class AtomisticTask(pl.LightningModule):
                 continue
             loss_module.update_metrics(pred, targets, subset)
             for metric_name, metric in loss_module.metrics[subset].items():
-                if dataset_key is 'default':
+                if dataset_key == 'default':
+                    # if it is default, omit the dataset key in the logging
                     logging_key = f"{subset}_{loss_module.name}_{metric_name}"
                 else:
                     logging_key = f"{subset}_{dataset_key}_{loss_module.name}_{metric_name}"
@@ -326,16 +328,16 @@ class AtomisticTask(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         losses_each_dataset = []
         for dataset_key in batch.keys():
-            batch_ = batch[dataset_key]
+            dataset_batch = batch[dataset_key]
             # because the forward function of the model overwrites part
             # of the values in its input, we create a new reference to
             # all the values
-            batch_new_reference = {k: v for k, v in batch_.items()}
+            batch_new_reference = {k: v for k, v in dataset_batch.items()}
             pred = self.predict_without_postprocessing(batch_new_reference)
-            pred, targets = self.apply_constraints(pred, batch_, dataset_key)
+            pred, targets = self.apply_constraints(pred, dataset_batch, dataset_key)
             loss = self.calculate_loss_per_dataset(pred, targets, dataset_key)
             losses_each_dataset.append(loss)
-            self.log_metrics(pred, targets, "train", dataset_key=dataset_key, batch_size=len(batch_['_idx']))
+            self.log_metrics(pred, targets, "train", dataset_key=dataset_key, batch_size=len(dataset_batch['_idx']))
         loss = sum(losses_each_dataset)
         self.log(
             f"train_loss",
@@ -343,7 +345,7 @@ class AtomisticTask(pl.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
-            batch_size=len(batch_["_idx"]),
+            batch_size=len(dataset_batch["_idx"]),
         )
         return loss
 
