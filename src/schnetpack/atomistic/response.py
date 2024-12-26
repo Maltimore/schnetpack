@@ -34,11 +34,6 @@ class Elements(nn.Module):
             3 * n_atom_basis,
             n_atom_basis,
         )
-#        self.neighb_hidden_layer = snn.Dense(
-#            3 * n_atom_basis,
-#            n_atom_basis,
-#            activation=F.silu,
-#        )
         n_possible_elements = 5
         self.predict_element_j_from_i = snn.Dense(
             3 * n_atom_basis,
@@ -61,7 +56,6 @@ class Elements(nn.Module):
             ],
             dim=1,
         )
-#        full_embedding = self.neighb_hidden_layer(full_embedding)
         pred_element_j_from_i = self.predict_element_j_from_i(full_embedding)
 
         # debug
