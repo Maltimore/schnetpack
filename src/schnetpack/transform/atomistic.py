@@ -21,7 +21,7 @@ class Maltes_neighboring_elements_labels(Transform):
     is_preprocessor: bool = True
     is_postprocessor: bool = False
 
-    def __init__(self):
+    def __init__(self, cutoff):
         super().__init__()
         self.element_mapping = torch.tensor([
             -1,
@@ -35,16 +35,24 @@ class Maltes_neighboring_elements_labels(Transform):
             3, # O
             4, # F
         ])
+        self.cutoff = cutoff
 
     def forward(
         self,
         inputs: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
+        r_ij = inputs['_positions'][inputs['_idx_i']] - inputs['_positions'][inputs['_idx_j']]
+        d_ij = torch.norm(r_ij, dim=1)
+
+        inputs['_r_ij_elem_prediction_cutoff'] = r_ij[d_ij < self.cutoff]
+        inputs['_idx_i_elem_prediction_cutoff'] = inputs['_idx_i'][d_ij < self.cutoff]
+        inputs['_idx_j_elem_prediction_cutoff'] = inputs['_idx_j'][d_ij < self.cutoff]
+
         elements = inputs[structure.Z]
         inputs['elements_as_labels'] = self.element_mapping[inputs[structure.Z]]
-        inputs['idx_j_elements_as_labels'] = self.element_mapping[inputs[structure.Z][inputs['_idx_j']]]
+        inputs['idx_j_elements_as_labels'] = self.element_mapping[inputs[structure.Z][inputs['_idx_j_elem_prediction_cutoff']]]
         if torch.any(inputs['elements_as_labels'] < 0) or torch.any(inputs['idx_j_elements_as_labels'] < 0):
-            raise Exception('neighbor elems computation wrong')
+            raise Exception('neighbor elems computation went wrong')
         return inputs
 
 

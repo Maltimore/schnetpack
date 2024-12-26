@@ -49,8 +49,8 @@ class Elements(nn.Module):
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         q = inputs['scalar_representation']
         mu = inputs["vector_representation"]
-        idx_i = inputs["_idx_i"]
-        r_ij = inputs[properties.Rij]
+        idx_i = inputs["_idx_i_elem_prediction_cutoff"]
+        r_ij = inputs['_r_ij_elem_prediction_cutoff']
 
         rij_embedding = self.rij_to_embedding(r_ij)
         mu_embedding = self.mu_to_embedding(mu.reshape([mu.shape[0], -1]))
