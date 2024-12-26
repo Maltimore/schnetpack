@@ -121,7 +121,9 @@ def train(config: DictConfig):
         os.makedirs(config.run.data_dir)
 
     # Init Lightning datamodule
-#    log.info(f"Instantiating datamodules <{config.data._target_}>")
+    log.info(f"Instantiating datamodules")
+    if 'data' in config.keys() and 'datasets' in config.keys():
+        log.error('Config error: only key of data or datasets may be specified')
     datamodule_dict = {}
     if 'data' in config.keys():
         if 'name' in config.data.keys():
