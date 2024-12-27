@@ -8,7 +8,7 @@ from torchmetrics import Metric
 
 from schnetpack.model.base import AtomisticModel
 
-__all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedLossModule", "AtomisticTask", "Maltes_partial_forces_loss", "Maltes_norm_loss"]
+__all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedLossModule", "AtomisticTask", "Maltes_partial_forces_loss"]
 
 
 class Maltes_partial_forces_loss(nn.Module):
@@ -57,18 +57,13 @@ class Maltes_partial_forces_loss(nn.Module):
 #            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_masks[molecule_idx]
 #            force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
             loss_terms_list.append(
-                cosine_sim_force_pairs.mean()
+                cosine_sim_force_pairs
                 + squared_distance_force_norms
 #                + 0.01 * self_force_norm
 #                + force_to_rij_cosine_loss
             )
         final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
-
-
-class Maltes_norm_loss(nn.Module):
-    def __call__(self, pred, batch):
-        return pred['activations'].norm(dim=-1).mean()
 
 
 class LossModule(nn.Module):
