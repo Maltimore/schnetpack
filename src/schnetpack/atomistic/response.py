@@ -25,18 +25,13 @@ class Elements(nn.Module):
     def __init__(self, n_atom_basis):
         super(Elements, self).__init__()
         self.model_outputs = ['pred_element_j_from_i']
-
-        self.rij_to_embedding = snn.Dense(
-            3,
-            n_atom_basis,
-        )
-        self.mu_to_embedding = snn.Dense(
-            3 * n_atom_basis,
-            n_atom_basis,
+        self.mu_channel_mix = snn.Dense(
+            n_atom_basis + 1, n_atom_basis, activation=None,
+            bias=False
         )
         n_possible_elements = 5  # FIXME TODO
         self.predict_element_j_from_i = snn.Dense(
-            3 * n_atom_basis,
+            2 * n_atom_basis,
             n_possible_elements,
         )
 
@@ -47,21 +42,12 @@ class Elements(nn.Module):
         idx_i = inputs['_idx_i_elem_prediction_cutoff']
         r_ij = inputs['_r_ij_elem_prediction_cutoff']
 
-        rij_embedding = self.rij_to_embedding(r_ij)
-        mu_embedding = self.mu_to_embedding(mu.reshape([mu.shape[0], -1]))
-        full_embedding = torch.cat(
-            [
-                rij_embedding,
-                torch.cat([q, mu_embedding], dim=1)[idx_i]
-            ],
-            dim=1,
-        )
-        pred_element_j_from_i = self.predict_element_j_from_i(full_embedding)
-
-        # debug
-        print(torch.unique(pred_element_j_from_i.argmax(dim=1), return_counts=True)[1])
-
-        inputs["pred_element_j_from_i"] = pred_element_j_from_i
+        mu_and_rij = torch.cat([r_ij.reshape([-1, 3, 1]), mu[idx_i]], dim=2)
+        mu_mix = self.mu_channel_mix(mu_and_rij)
+        mu_nonlinearity = torch.norm(mu_mix, dim=1).squeeze()
+        h = torch.concatenate([mu_nonlinearity, q[idx_i]], dim=1)
+        pred_element_j_from_i = self.predict_element_j_from_i(h)
+        inputs['pred_element_j_from_i'] = pred_element_j_from_i
         return inputs
 
 
