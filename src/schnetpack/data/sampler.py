@@ -11,6 +11,7 @@ __all__ = [
     "StratifiedSampler",
     "NumberOfAtomsCriterion",
     "PropertyCriterion",
+    "MultipleTrainEpochsSampler",
 ]
 
 
