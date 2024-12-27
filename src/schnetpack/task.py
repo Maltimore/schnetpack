@@ -204,6 +204,13 @@ class ModelOutput(DirectComparisonLossModule):
 
 
 class AdvancedLossModule(LossModule):
+    """
+    This loss module passes full inputs and predictions
+    dictionaries to the loss_fn. The loss_fn needs to know which
+    keys in the dictionaries are relevant to it and extract them.
+    Similarly, the metrics need to be custom metrics that extract
+    the relevant data from the same dictionaries.
+    """
     def calculate_loss(self, pred, batch):
         if self.loss_weight == 0 or self.loss_fn is None:
             return 0.0
@@ -218,7 +225,6 @@ class AdvancedLossModule(LossModule):
 class AtomisticTask(pl.LightningModule):
     """
     The basic learning task in SchNetPack, which ties model, loss and optimizer together.
-
     """
 
     def __init__(
@@ -308,8 +314,8 @@ class AtomisticTask(pl.LightningModule):
                 self.log(
                     logging_key,
                     metric,
-                    on_step=False,
-                    on_epoch=True,
+                    on_step=True if subset == 'train' else False,
+                    on_epoch=False if subset == 'train' else True,
                     prog_bar=False,
                     batch_size=batch_size,
                 )
