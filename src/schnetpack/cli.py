@@ -71,6 +71,9 @@ def train(config: DictConfig):
         """
         )
         return
+    if 'data' in config.keys() and 'datasets' in config.keys():
+        log.error('Config error: only key of data or datasets may be specified')
+        return
 
     if os.path.exists("config.yaml"):
         log.info(
@@ -122,8 +125,6 @@ def train(config: DictConfig):
 
     # Init Lightning datamodule
     log.info(f"Instantiating datamodules")
-    if 'data' in config.keys() and 'datasets' in config.keys():
-        log.error('Config error: only key of data or datasets may be specified')
     datamodule_dict = {}
     if 'data' in config.keys():
         if 'name' in config.data.keys():
