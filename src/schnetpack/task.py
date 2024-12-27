@@ -47,20 +47,20 @@ class Maltes_partial_forces_loss(nn.Module):
             )**2).sum(axis=0).mean()
 #            self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
             # note that on the diagonal of r_ij we get cosines of 0
-            cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
-                partials,
-                r_ij,
-                dim=2,
-                eps=1e-18,
-            )
-            # just to be sure that the diagonal elements do not contribute to the grad
-            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_masks[molecule_idx]
-            force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
+#            cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
+#                partials,
+#                r_ij,
+#                dim=2,
+#                eps=1e-18,
+#            )
+#            # just to be sure that the diagonal elements do not contribute to the grad
+#            cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_masks[molecule_idx]
+#            force_to_rij_cosine_loss = (-torch.abs(cosine_sim_force_r_ij_masked)).div((D + 1e-3)).sum(axis=0).mean()
             loss_terms_list.append(
                 cosine_sim_force_pairs.mean()
                 + squared_distance_force_norms
 #                + 0.01 * self_force_norm
-                + force_to_rij_cosine_loss
+#                + force_to_rij_cosine_loss
             )
         final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
@@ -328,6 +328,9 @@ class AtomisticTask(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         losses_each_dataset = []
         for dataset_key in batch.keys():
+            if dataset_key not in self.dataset_key_to_loss_modules.keys():
+                raise ValueError(
+                    f'Received batch for dataset {dataset_key}, which has no LossModule attached')
             dataset_batch = batch[dataset_key]
             # because the forward function of the model overwrites part
             # of the values in its input, we create a new reference to
@@ -353,6 +356,9 @@ class AtomisticTask(pl.LightningModule):
         torch.set_grad_enabled(self.grad_enabled)
         losses_each_dataset = []
         for dataset_key in batch.keys():
+            if dataset_key not in self.dataset_key_to_loss_modules.keys():
+                raise ValueError(
+                    f'Received batch for dataset {dataset_key}, which has no LossModule attached')
             batch_ = batch[dataset_key]
             # because the forward function of the model overwrites part
             # of the values in its input, we create a new reference to
@@ -378,6 +384,9 @@ class AtomisticTask(pl.LightningModule):
         torch.set_grad_enabled(self.grad_enabled)
         losses_each_dataset = []
         for dataset_key in batch.keys():
+            if dataset_key not in self.dataset_key_to_loss_modules.keys():
+                raise ValueError(
+                    f'Received batch for dataset {dataset_key}, which has no LossModule attached')
             batch_ = batch[dataset_key]
             # because the forward function of the model overwrites part
             # of the values in its input, we create a new reference to
