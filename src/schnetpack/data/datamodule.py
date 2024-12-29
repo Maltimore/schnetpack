@@ -62,6 +62,7 @@ class AtomsDataModule(pl.LightningDataModule):
         cleanup_workdir_stage: Optional[str] = "test",
         splitting: Optional[SplittingStrategy] = None,
         pin_memory: Optional[bool] = False,
+        disable_training = False,
     ):
         """
         Args:
@@ -286,7 +287,7 @@ class AtomsDataModule(pl.LightningDataModule):
             else:
                 self._log_with_rank("Create split")
 
-                if not self.num_train or not self.num_val:
+                if self.num_train is None or self.num_val is None:
                     raise AtomsDataModuleError(
                         "If no `split_file` is given, the sizes of the training and"
                         + " validation partitions need to be set!"
