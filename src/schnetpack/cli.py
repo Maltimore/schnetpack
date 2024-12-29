@@ -198,12 +198,13 @@ def train(config: DictConfig):
 
     # Train the model
     log.info("Starting training.")
+    iterables = {}
+    for dataset_key, datamodule in datamodule_dict.items():
+        if 'disable_training' in datamodule_dict.keys() and datamodule_dict['disable_training']:
+            continue
+        iterables[dataset_key] = datamodule.train_dataloader()
     train_dataloader = CombinedLoader(
-        iterables={dataset_key:
-            datamodule.train_dataloader() for
-            dataset_key, datamodule in
-            datamodule_dict.items()
-        },
+        iterables=iterables,
         mode='max_size_cycle'
     )
     val_dataloader = CombinedLoader(
