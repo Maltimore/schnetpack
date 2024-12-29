@@ -198,16 +198,27 @@ def train(config: DictConfig):
 
     # Train the model
     log.info("Starting training.")
+    train_dataloader = CombinedLoader(
+        iterables={dataset_key:
+            datamodule.train_dataloader() for
+            dataset_key, datamodule in
+            datamodule_dict.items()
+        },
+        mode='max_size_cycle'
+    )
+    val_dataloader = CombinedLoader(
+        iterables={dataset_key:
+            datamodule.val_dataloader() for
+            dataset_key, datamodule in
+            datamodule_dict.items()
+        },
+        mode='max_size_cycle'
+    )
+
     trainer.fit(
         model=task,
-        train_dataloaders=CombinedLoader(
-            iterables={dataset_key: datamodule.train_dataloader() for dataset_key, datamodule in datamodule_dict.items()},
-            mode='max_size_cycle'
-        ),
-        val_dataloaders=CombinedLoader(
-            iterables={dataset_key: datamodule.val_dataloader() for dataset_key, datamodule in datamodule_dict.items()},
-            mode='max_size_cycle'
-        ),
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader,
         ckpt_path=config.run.ckpt_path
     )
 
