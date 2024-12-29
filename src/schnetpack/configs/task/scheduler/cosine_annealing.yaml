@@ -2,5 +2,5 @@
 scheduler_cls: torch.optim.lr_scheduler.CosineAnnealingLR
 scheduler_monitor: val_loss
 scheduler_args:
-  T_max: 200
+  T_max: 5 # note that this refers to number of epochs, not steps
   eta_min: 1e-6
