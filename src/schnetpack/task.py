@@ -103,14 +103,14 @@ class LossModule(nn.Module):
         self.loss_fn = loss_fn
         self.loss_weight = loss_weight
         if metrics is not None:
-            self.train_metrics = nn.ModuleDict(metrics)
-            self.val_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
-            self.test_metrics = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
-            self.metrics = {
-                "train": self.train_metrics,
-                "val": self.val_metrics,
-                "test": self.test_metrics,
-            }
+            # nesting dicts doesn't work as the lowest-level keys get assigned
+            # to the module and one can't have double keys, so we have to
+            # monkey around with the keys to make them unique
+            self.metrics = nn.ModuleDict()
+            for dataset_key in dataset_keys:
+                self.metrics[f'{dataset_key}_train'] = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
+                self.metrics[f'{dataset_key}_val'] = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
+                self.metrics[f'{dataset_key}_test'] = nn.ModuleDict({k: v.clone() for k, v in metrics.items()})
         else:
             self.metrics = {}
 
@@ -119,8 +119,13 @@ class LossModule(nn.Module):
     def calculate_loss(self, pred, target):
         raise NotImplementedError
 
-    def update_metrics(self, pred, target, subset):
-        raise NotImplementedError
+    def get_metrics_dict(self, dataset_key, subset):
+        return self.metrics[f'{dataset_key}_{subset}']
+
+    def update_metrics(self, pred, batch, subset, dataset_key):
+        metrics = self.metrics[f'{dataset_key}_{subset}']
+        for metric in metrics.values():
+            self._call_metric(metric, pred, batch)
 
 
 class DirectComparisonLossModule(LossModule):
@@ -171,9 +176,8 @@ class DirectComparisonLossModule(LossModule):
         )
         return loss
 
-    def update_metrics(self, pred, target, subset):
-        for metric in self.metrics[subset].values():
-            metric(pred[self.prediction_key], target[self.target_key])
+    def _call_metric(self, metric, pred, batch):
+        metric(pred[self.prediction_key], batch[self.target_key])
 
 
 class ModelOutput(DirectComparisonLossModule):
@@ -217,9 +221,8 @@ class AdvancedLossModule(LossModule):
         loss = self.loss_weight * self.loss_fn(pred, batch)
         return loss
 
-    def update_metrics(self, pred, batch, subset):
-        for metric in self.metrics[subset].values():
-            metric(pred, batch)
+    def _call_metric(self, metric, pred, batch):
+        metric(pred, batch)
 
 
 class AtomisticTask(pl.LightningModule):
@@ -302,10 +305,8 @@ class AtomisticTask(pl.LightningModule):
 
     def log_metrics(self, pred, targets, subset, dataset_key, batch_size):
         for loss_module in self.dataset_key_to_loss_modules[dataset_key]:
-            if subset not in loss_module.metrics.keys():
-                continue
-            loss_module.update_metrics(pred, targets, subset)
-            for metric_name, metric in loss_module.metrics[subset].items():
+            loss_module.update_metrics(pred, targets, subset, dataset_key)
+            for metric_name, metric in loss_module.get_metrics_dict(dataset_key, subset).items():
                 if dataset_key == 'default':
                     # if it is default, omit the dataset key in the logging
                     logging_key = f"{subset}_{loss_module.name}_{metric_name}"
