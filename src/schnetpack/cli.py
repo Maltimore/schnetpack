@@ -126,6 +126,8 @@ def train(config: DictConfig):
     # Init Lightning datamodule
     log.info(f"Instantiating datamodules")
     datamodule_dict = {}
+    # if `data` is given (and therefore, not `datasets`),
+    # transform `data` into a dict similar to `config.datasets`
     if 'data' in config.keys():
         if 'name' in config.data.keys():
             dataset_key = config.data.pop('name')
@@ -142,6 +144,7 @@ def train(config: DictConfig):
                 if dataset_config.train_sampler_cls
                 else None
             ),
+            dataset_name=dataset_key,
         )
         datamodule.setup()
         datamodule_dict[dataset_key] = datamodule
@@ -200,7 +203,7 @@ def train(config: DictConfig):
     log.info("Starting training.")
     iterables = {}
     for dataset_key, datamodule in datamodule_dict.items():
-        if 'disable_training' in dataset_configs[dataset_key].keys() and dataset_configs[dataset_key]['disable_training']:
+        if datamodule.disable_training:
             continue
         iterables[dataset_key] = datamodule.train_dataloader()
     train_dataloader = CombinedLoader(

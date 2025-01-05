@@ -42,7 +42,7 @@ class AtomsDataModule(pl.LightningDataModule):
         num_train: Union[int, float] = None,
         num_val: Union[int, float] = None,
         num_test: Optional[Union[int, float]] = None,
-        split_file: Optional[str] = "split.npz",
+        split_file: Optional[str] = None,
         format: Optional[AtomsDataFormat] = None,
         load_properties: Optional[List[str]] = None,
         val_batch_size: Optional[int] = None,
@@ -62,7 +62,8 @@ class AtomsDataModule(pl.LightningDataModule):
         cleanup_workdir_stage: Optional[str] = "test",
         splitting: Optional[SplittingStrategy] = None,
         pin_memory: Optional[bool] = False,
-        disable_training = False,
+        disable_training: bool = False,
+        dataset_name: str = 'default_dataset',
     ):
         """
         Args:
@@ -134,6 +135,8 @@ class AtomsDataModule(pl.LightningDataModule):
         self.data_workdir = data_workdir
         self.cleanup_workdir_stage = cleanup_workdir_stage
         self._pin_memory = pin_memory
+        self.dataset_name = dataset_name
+        self.disable_training = disable_training
 
         self.train_idx = None
         self.val_idx = None
@@ -297,14 +300,13 @@ class AtomsDataModule(pl.LightningDataModule):
                     self.dataset, self.num_train, self.num_val, self.num_test
                 )
 
-                if self.split_file is not None:
-                    self._log_with_rank("Save split")
-                    np.savez(
-                        self.split_file,
-                        train_idx=self.train_idx,
-                        val_idx=self.val_idx,
-                        test_idx=self.test_idx,
-                    )
+                self._log_with_rank("Save split")
+                np.savez(
+                    f'split_{self.dataset_name}.npz',
+                    train_idx=self.train_idx,
+                    val_idx=self.val_idx,
+                    test_idx=self.test_idx,
+                )
 
         self._log_with_rank("Exit splitting lock")
 
