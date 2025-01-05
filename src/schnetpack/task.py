@@ -120,10 +120,14 @@ class LossModule(nn.Module):
         raise NotImplementedError
 
     def get_metrics_dict(self, dataset_key, subset):
-        return self.metrics[f'{dataset_key}_{subset}']
+        key = f'{dataset_key}_{subset}'
+        if key in self.metrics.keys():
+            return self.metrics[f'{dataset_key}_{subset}']
+        else:
+            return {}
 
-    def update_metrics(self, pred, batch, subset, dataset_key):
-        metrics = self.metrics[f'{dataset_key}_{subset}']
+    def update_metrics(self, pred, batch, dataset_key, subset):
+        metrics = self.get_metrics_dict(dataset_key, subset)
         for metric in metrics.values():
             self._call_metric(metric, pred, batch)
 
@@ -233,7 +237,7 @@ class AtomisticTask(pl.LightningModule):
     def __init__(
         self,
         model: AtomisticModel,
-        loss_modules: List[LossModule] = None, # required, but for now, users may still use outputs
+        loss_modules: List[LossModule] = None, # required, but for now, users may still use `outputs`
         outputs: List[ModelOutput] = None, # DEPRECATED
         optimizer_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_args: Optional[Dict[str, Any]] = None,
@@ -305,7 +309,7 @@ class AtomisticTask(pl.LightningModule):
 
     def log_metrics(self, pred, targets, subset, dataset_key, batch_size):
         for loss_module in self.dataset_key_to_loss_modules[dataset_key]:
-            loss_module.update_metrics(pred, targets, subset, dataset_key)
+            loss_module.update_metrics(pred, targets, dataset_key, subset)
             for metric_name, metric in loss_module.get_metrics_dict(dataset_key, subset).items():
                 if dataset_key == 'default':
                     # if it is default, omit the dataset key in the logging
