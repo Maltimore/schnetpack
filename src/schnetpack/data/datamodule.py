@@ -330,7 +330,6 @@ class AtomsDataModule(pl.LightningDataModule):
             batch_sampler = BatchSampler(
                 sampler=sampler_cls(
                     data_source=dataset,
-                    num_samples=len(dataset),
                     **sampler_args,
                 ),
                 batch_size=self.batch_size,
