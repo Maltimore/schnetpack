@@ -13,6 +13,7 @@ defaults:
   - task: default_task
   - model: null
   - data: custom
+  - datasets: placeholder
   - logger: tensorboard
   - experiment: null
 
