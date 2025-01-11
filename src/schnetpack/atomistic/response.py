@@ -37,6 +37,10 @@ class Elements(nn.Module):
 
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        # TODO this if is not very nice
+        if '_idx_i_elem_prediction_cutoff' not in inputs.keys():
+            inputs['pred_element_j_from_i'] = torch.tensor([])
+            return inputs
         q = inputs['scalar_representation']
         mu = inputs['vector_representation']
         idx_i = inputs['_idx_i_elem_prediction_cutoff']
