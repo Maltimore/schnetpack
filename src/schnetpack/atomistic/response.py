@@ -24,6 +24,7 @@ class Elements(nn.Module):
 
     def __init__(self, n_atom_basis):
         super(Elements, self).__init__()
+        self.md_mode = False
         self.model_outputs = ['pred_element_j_from_i']
         self.mu_channel_mix = snn.Dense(
             n_atom_basis + 1, n_atom_basis, activation=None,
@@ -35,11 +36,12 @@ class Elements(nn.Module):
             n_possible_elements,
         )
 
+    def set_MD_mode(self):
+        self.md_mode = True
+        self.model_outputs = []
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        # TODO this if is not very nice
-        if '_idx_i_elem_prediction_cutoff' not in inputs.keys():
-            inputs['pred_element_j_from_i'] = torch.tensor([])
+        if self.md_mode:
             return inputs
         q = inputs['scalar_representation']
         mu = inputs['vector_representation']
@@ -115,11 +117,14 @@ class Forces(nn.Module):
         if self.calc_stress:
             self.required_derivatives.append(properties.strain)
 
+    def set_MD_mode(self):
+        self.md_mode = True
+        self.model_outputs.remove(self.partial_forces_key)
+
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         Epred = inputs[self.energy_key]
 
-        if self.calc_partial_forces:
-
+        if self.calc_partial_forces and not self.md_mode:
             device = inputs['_n_atoms'].device
             batch_size = len(inputs['_n_atoms'])
             batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())

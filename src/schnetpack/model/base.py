@@ -81,6 +81,13 @@ class AtomisticModel(nn.Module):
         self.model_outputs: Optional[List[str]] = None
         self.spk_version = spk.__version__
 
+    def set_MD_mode(self):
+        for m in self.output_modules:
+            if hasattr(m, "set_MD_mode"):
+                m.set_MD_mode()
+        self.collect_derivatives()
+        self.collect_outputs()
+
     def collect_derivatives(self) -> List[str]:
         self.required_derivatives = None
         required_derivatives = set()
