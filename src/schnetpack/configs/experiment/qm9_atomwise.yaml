@@ -23,7 +23,6 @@ data:
       remove_mean: True
     - _target_: schnetpack.transform.MatScipyNeighborList
       cutoff: ${globals.cutoff}
-    - _target_: schnetpack.transform.Maltes_neighboring_elements_labels
     - _target_: schnetpack.transform.CastTo32
 
 model:
