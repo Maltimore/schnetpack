@@ -117,6 +117,8 @@ class Forces(nn.Module):
         if self.calc_stress:
             self.required_derivatives.append(properties.strain)
 
+        self.md_mode = False
+
     def set_MD_mode(self):
         self.md_mode = True
         self.model_outputs.remove(self.partial_forces_key)
