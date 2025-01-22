@@ -14,7 +14,38 @@ __all__ = [
     "RemoveOffsets",
     "ScaleProperty",
     "Maltes_neighboring_elements_labels",
+    "Maltes_repelling_forces",
 ]
+
+
+# class Maltes_repelling_forces(Transform):
+#     is_preprocessor: bool = True
+#     is_postprocessor: bool = False
+#
+#     def __init__(self, cutoff):
+#         super().__init__()
+#         self.elem_pair_to_repel_distance = {
+#             '1-1': 1.0,
+#             '6-6': 1.2,
+#             '6-7': 1.47,
+#             '6-8': 1.43,
+#         }
+#
+#     def forward(
+#         self,
+#         inputs: Dict[str, torch.Tensor],
+#     ) -> Dict[str, torch.Tensor]:
+#         if '_maltes_r_ij' not in inputs.keys():
+#             r_ij = inputs['_positions'][inputs['_idx_i']] - inputs['_positions'][inputs['_idx_j']]
+#             inputs['_maltes_r_ij'] = r_ij
+#         else:
+#             r_ij = inputs['_maltes_r_ij']
+#         d_ij = torch.norm(r_ij, dim=1)
+#
+#         for elem_pair, repel_distance in self.elem_pair_to_repel_distance.items():
+#             pass
+#
+#         return inputs
 
 
 class Maltes_neighboring_elements_labels(Transform):
@@ -41,16 +72,15 @@ class Maltes_neighboring_elements_labels(Transform):
         self,
         inputs: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
-        r_ij = inputs['_positions'][inputs['_idx_i']] - inputs['_positions'][inputs['_idx_j']]
-        d_ij = torch.norm(r_ij, dim=1)
-
-        inputs['_r_ij_elem_prediction_cutoff'] = r_ij[d_ij < self.cutoff]
-        inputs['_idx_i_elem_prediction_cutoff'] = inputs['_idx_i'][d_ij < self.cutoff]
-        inputs['_idx_j_elem_prediction_cutoff'] = inputs['_idx_j'][d_ij < self.cutoff]
+        if '_maltes_r_ij' not in inputs.keys():
+            r_ij = inputs['_positions'][inputs['_idx_i']] - inputs['_positions'][inputs['_idx_j']]
+            inputs['_maltes_r_ij'] = r_ij
+        else:
+            r_ij = inputs['_maltes_r_ij']
 
         elements = inputs[structure.Z]
         inputs['elements_as_labels'] = self.element_mapping[inputs[structure.Z]]
-        inputs['idx_j_elements_as_labels'] = self.element_mapping[inputs[structure.Z][inputs['_idx_j_elem_prediction_cutoff']]]
+        inputs['idx_j_elements_as_labels'] = self.element_mapping[inputs[structure.Z][inputs['_idx_j']]]
         if torch.any(inputs['elements_as_labels'] < 0) or torch.any(inputs['idx_j_elements_as_labels'] < 0):
             raise Exception('neighbor elems computation went wrong')
         return inputs

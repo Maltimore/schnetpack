@@ -45,8 +45,8 @@ class Elements(nn.Module):
             return inputs
         q = inputs['scalar_representation']
         mu = inputs['vector_representation']
-        idx_i = inputs['_idx_i_elem_prediction_cutoff']
-        r_ij = inputs['_r_ij_elem_prediction_cutoff']
+        idx_i = inputs['_idx_i']
+        r_ij = inputs['_maltes_r_ij']
 
         mu_and_rij = torch.cat([r_ij.reshape([-1, 3, 1]), mu[idx_i]], dim=2)
         mu_mix = self.mu_channel_mix(mu_and_rij)
