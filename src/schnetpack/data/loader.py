@@ -44,6 +44,15 @@ def _atoms_collate_fn(batch):
             coll_batch[key] = torch.cat(
                 [d[key] + off for d, off in zip(batch, seg_m)], 0
             )
+    # collate all keys that end with '_pleasecollate'
+    for key in elem.keys():
+        if key.endswith('_pleasecollate'):
+            new_key = key.strip('_pleasecollate')
+            coll_batch[new_key] = torch.cat(
+                [d[key] + off for d, off in zip(batch, seg_m)], 0
+            )
+            # remove the keys that end in _pleasecollate
+            coll_batch.pop(key)
 
     # Shift the indices for the atom triples
     for key in idx_triple_keys:
