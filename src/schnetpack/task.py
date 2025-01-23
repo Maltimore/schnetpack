@@ -30,7 +30,7 @@ class Maltes_partial_forces_loss(nn.Module):
         for molecule_idx in range(len(batch['_n_atoms'])):
             partials = partial_forces_list[molecule_idx][:, 0:batch['_n_atoms'][molecule_idx].item(), :]
             positions = positions_list[molecule_idx]
-            r_ij = positions[:, None, :] - positions[None, :, :]
+            r_ij = positions[None, :, :] - positions[:, None, :]
             D = torch.norm(r_ij, dim=2)
             cosine_sim_force_pairs = torch.nn.functional.cosine_similarity(
                 partials,
@@ -83,7 +83,7 @@ class Maltes_partial_forces_loss(nn.Module):
                 + squared_distance_force_norms
 #                + 0.01 * self_force_norm
                 + force_to_rij_cosine_loss
-                + 3. * repel_loss
+                + 100. * repel_loss
             )
         final_loss = torch.stack(loss_terms_list).mean()
         return final_loss
