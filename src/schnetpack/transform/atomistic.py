@@ -26,10 +26,12 @@ class Maltes_repelling_forces(Transform):
         super().__init__()
         self.elem_pair_to_repel_distance = {
             (1, 1): 1.65,  # H-H covalent bond would be .74, but the H's are non-bonded
-            (1, 6): 1.03,  # 1.06 - 1.12 
-            (6, 6): 1.30,  # 1.20 - 1.55 (lower range is for triple bond)
-            (6, 7): 1.35,  # 1.47 - 2.10
-            (6, 8): 1.23,  # 1.43 - 2.15
+            (1, 6): 1.038,  # 1.06 - 1.12
+            (1, 7): 0.966,
+            (1, 8): 1.71,
+            (6, 6): 1.45,  # 1.20 - 1.55 (lower range is for triple bond)
+            (6, 7): 1.31,  # 1.47 - 2.10
+            (6, 8): 1.19,  # 1.43 - 2.15
         }
 
     def forward(
