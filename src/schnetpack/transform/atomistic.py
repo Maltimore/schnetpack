@@ -50,7 +50,17 @@ class Maltes_repelling_forces(Transform):
         repel_idxes_i = []
         repel_idxes_j = []
         for elem_pair, repel_distance in self.elem_pair_to_repel_distance.items():
-            mask = (Z[idx_i] == elem_pair[0]) & (Z[idx_j] == elem_pair[1]) & (d_ij < repel_distance)
+            mask = (
+                (
+                 ((Z[idx_i] == elem_pair[0]) & (Z[idx_j] == elem_pair[1]))
+                 |
+                 ((Z[idx_j] == elem_pair[0]) & (Z[idx_i] == elem_pair[1]))
+                )
+                &
+                (
+                    d_ij < repel_distance
+                )
+            )
             repel_idxes_i.append(idx_i[mask])
             repel_idxes_j.append(idx_j[mask])
         inputs['_repel_idxes_i_pleasecollate'] = torch.concatenate(repel_idxes_i, dim=0)
