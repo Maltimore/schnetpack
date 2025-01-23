@@ -18,41 +18,52 @@ __all__ = [
 ]
 
 
-# class Maltes_repelling_forces(Transform):
-#     is_preprocessor: bool = True
-#     is_postprocessor: bool = False
-#
-#     def __init__(self, cutoff):
-#         super().__init__()
-#         self.elem_pair_to_repel_distance = {
-#             '1-1': 1.0,
-#             '6-6': 1.2,
-#             '6-7': 1.47,
-#             '6-8': 1.43,
-#         }
-#
-#     def forward(
-#         self,
-#         inputs: Dict[str, torch.Tensor],
-#     ) -> Dict[str, torch.Tensor]:
-#         if '_maltes_r_ij' not in inputs.keys():
-#             r_ij = inputs['_positions'][inputs['_idx_i']] - inputs['_positions'][inputs['_idx_j']]
-#             inputs['_maltes_r_ij'] = r_ij
-#         else:
-#             r_ij = inputs['_maltes_r_ij']
-#         d_ij = torch.norm(r_ij, dim=1)
-#
-#         for elem_pair, repel_distance in self.elem_pair_to_repel_distance.items():
-#             pass
-#
-#         return inputs
+class Maltes_repelling_forces(Transform):
+    is_preprocessor: bool = True
+    is_postprocessor: bool = False
+
+    def __init__(self):
+        super().__init__()
+        self.elem_pair_to_repel_distance = {
+            (1, 1): 1.65,  # H-H covalent bond would be .74, but the H's are non-bonded
+            (1, 6): 1.03,  # 1.06 - 1.12 
+            (6, 6): 1.30,  # 1.20 - 1.55 (lower range is for triple bond)
+            (6, 7): 1.35,  # 1.47 - 2.10
+            (6, 8): 1.23,  # 1.43 - 2.15
+        }
+
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        idx_i = inputs['_idx_i']
+        idx_j = inputs['_idx_j']
+        Z = inputs['_atomic_numbers']
+
+        if '_maltes_r_ij' not in inputs.keys():
+            r_ij = inputs['_positions'][idx_i] - inputs['_positions'][idx_j]
+            inputs['_maltes_r_ij'] = r_ij
+        else:
+            r_ij = inputs['_maltes_r_ij']
+        d_ij = torch.norm(r_ij, dim=1)
+
+        repel_idxes_i = []
+        repel_idxes_j = []
+        for elem_pair, repel_distance in self.elem_pair_to_repel_distance.items():
+            mask = (Z[idx_i] == elem_pair[0]) & (Z[idx_j] == elem_pair[1]) & (d_ij < repel_distance)
+            repel_idxes_i.append(idx_i[mask])
+            repel_idxes_j.append(idx_j[mask])
+        inputs['_repel_idxes_i_pleasecollate'] = torch.concatenate(repel_idxes_i, dim=0)
+        inputs['_repel_idxes_j_pleasecollate'] = torch.concatenate(repel_idxes_j, dim=0)
+
+        return inputs
 
 
 class Maltes_neighboring_elements_labels(Transform):
     is_preprocessor: bool = True
     is_postprocessor: bool = False
 
-    def __init__(self, cutoff):
+    def __init__(self):
         super().__init__()
         self.element_mapping = torch.tensor([
             -1,
@@ -66,7 +77,6 @@ class Maltes_neighboring_elements_labels(Transform):
             3, # O
             4, # F
         ])
-        self.cutoff = cutoff
 
     def forward(
         self,
