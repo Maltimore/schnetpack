@@ -41,7 +41,7 @@ class Elements(nn.Module):
         self.model_outputs = []
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        if self.md_mode:
+        if hasattr(self, 'md_mode') and self.md_mode:
             return inputs
         q = inputs['scalar_representation']
         mu = inputs['vector_representation']
