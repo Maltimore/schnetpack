@@ -91,7 +91,7 @@ class VibrationalSpectrum:
         self.frequencies = []
         self.intensities = []
 
-    def compute_spectrum(self, molecule_idx: int = 0):
+    def compute_spectrum(self, molecule_idx: int = 0, replica_idx = None):
         """
         Main routine for computing spectra. First the relavant data is read,
         then autocorrelations are computed and processed. Based on the
@@ -103,7 +103,7 @@ class VibrationalSpectrum:
                                 Uses the same conventions as schnetpack.md.System.
         """
         # Get appropriate data
-        relevant_data = self._get_data(molecule_idx)
+        relevant_data = self._get_data(molecule_idx, replica_idx)
 
         # Compute autocorrelation function
         autocorrelation = self._compute_autocorrelations(relevant_data)
@@ -187,7 +187,7 @@ class VibrationalSpectrum:
         autocorrelations = autocorrelations.reshape((*data_dim, -1))
         return autocorrelations
 
-    def _get_data(self, molecule_idx: int):
+    def _get_data(self, molecule_idx: int, replica_idx: int):
         """
         Placeholder for extracting teh required data from the HDF5 dataset.
 
@@ -239,7 +239,7 @@ class PowerSpectrum(VibrationalSpectrum):
     def __init__(self, data: HDF5Loader, resolution: int = 4096):
         super(PowerSpectrum, self).__init__(data, resolution=resolution)
 
-    def _get_data(self, molecule_idx: int):
+    def _get_data(self, molecule_idx: int, replica_idx: int):
         """
         Extract the molecular velocities for computing the spectrum.
 
@@ -250,7 +250,7 @@ class PowerSpectrum(VibrationalSpectrum):
         Returns:
             numpy.array: Array holding molecular velocities.
         """
-        relevant_data = self.data.get_velocities(molecule_idx)
+        relevant_data = self.data.get_velocities(molecule_idx, replica_idx)
         return relevant_data
 
     def _process_autocorrelation(self, autocorrelation: np.array):
