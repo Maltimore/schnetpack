@@ -14,6 +14,7 @@ globals:
   aggregation: sum
 
 data:
+  name: default
   transforms:
     - _target_: schnetpack.transform.SubtractCenterOfMass
     - _target_: schnetpack.transform.RemoveOffsets
@@ -25,11 +26,19 @@ data:
     - _target_: schnetpack.transform.CastTo32
 
 model:
+  representation:
+    radial_basis:
+      _target_: schnetpack.nn.radial.GaussianRBF
+      n_rbf: 20
+      cutoff: ${globals.cutoff}
+    _target_: schnetpack.representation.PaiNN
   output_modules:
     - _target_: schnetpack.atomistic.Atomwise
       output_key: ${globals.property}
       n_in: ${model.representation.n_atom_basis}
       aggregation_mode: ${globals.aggregation}
+    - _target_: schnetpack.atomistic.Elements
+      n_atom_basis: ${model.representation.n_atom_basis}
   postprocessors:
     - _target_: schnetpack.transform.CastTo64
     - _target_: schnetpack.transform.AddOffsets
@@ -38,7 +47,7 @@ model:
       add_atomrefs: True
 
 task:
-  outputs:
+  loss_modules:
     - _target_: schnetpack.task.ModelOutput
       name: ${globals.property}
       loss_fn:
@@ -49,4 +58,25 @@ task:
         rmse:
           _target_: torchmetrics.regression.MeanSquaredError
           squared: False
+      loss_weight: 1.
+    # predicting elements
+    - _target_: schnetpack.task.ModelOutput
+      name: pred_element_i_from_i
+      target_property: elements_as_labels
+      loss_fn:
+        _target_: torch.nn.CrossEntropyLoss
+      metrics:
+        accuracy:
+          _target_: torchmetrics.classification.MulticlassAccuracy
+          num_classes: 5
+      loss_weight: 1.
+    - _target_: schnetpack.task.ModelOutput
+      name: pred_element_j_from_i
+      target_property: idx_j_elements_as_labels
+      loss_fn:
+        _target_: torch.nn.CrossEntropyLoss
+      metrics:
+        accuracy:
+          _target_: torchmetrics.classification.MulticlassAccuracy
+          num_classes: 5
       loss_weight: 1.

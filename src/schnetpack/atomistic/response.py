@@ -6,13 +6,68 @@ import torch.nn as nn
 from torch.autograd import grad
 
 from schnetpack.nn.utils import derivative_from_molecular, derivative_from_atomic
+import torch.nn.functional as F
 import schnetpack.properties as properties
+import schnetpack.nn as snn
 
-__all__ = ["Forces", "Strain", "Response"]
+__all__ = ["Forces", "Strain", "Response", "JustAddToOutput", "Elements"]
 
 
 class ResponseException(Exception):
     pass
+
+
+class Elements(nn.Module):
+    """
+    Predict the elements of the neighbors
+    """
+
+    def __init__(self, n_atom_basis):
+        super(Elements, self).__init__()
+        self.md_mode = False
+        self.model_outputs = ['pred_element_j_from_i']
+        self.mu_channel_mix = snn.Dense(
+            n_atom_basis + 1, n_atom_basis, activation=None,
+            bias=False
+        )
+        n_possible_elements = 5  # FIXME TODO
+        self.predict_element_j_from_i = snn.Dense(
+            2 * n_atom_basis,
+            n_possible_elements,
+        )
+
+    def set_MD_mode(self):
+        self.md_mode = True
+        self.model_outputs = []
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        if hasattr(self, 'md_mode') and self.md_mode:
+            return inputs
+        q = inputs['scalar_representation']
+        mu = inputs['vector_representation']
+        idx_i = inputs['_idx_i']
+        r_ij = inputs['_maltes_r_ij']
+
+        mu_and_rij = torch.cat([r_ij.reshape([-1, 3, 1]), mu[idx_i]], dim=2)
+        mu_mix = self.mu_channel_mix(mu_and_rij)
+        mu_nonlinearity = torch.norm(mu_mix, dim=1).squeeze()
+        h = torch.concatenate([mu_nonlinearity, q[idx_i]], dim=1)
+        pred_element_j_from_i = self.predict_element_j_from_i(h)
+        inputs['pred_element_j_from_i'] = pred_element_j_from_i
+        return inputs
+
+
+class JustAddToOutput(nn.Module):
+    """
+    Just adds a predicted quantity to the outputs of the model.
+    """
+
+    def __init__(self, key_to_add):
+        super(JustAddToOutput, self).__init__()
+        self.model_outputs = [key_to_add,]
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        return inputs
 
 
 class Forces(nn.Module):
@@ -62,25 +117,36 @@ class Forces(nn.Module):
         if self.calc_stress:
             self.required_derivatives.append(properties.strain)
 
+        self.md_mode = False
+
+    def set_MD_mode(self):
+        self.md_mode = True
+        self.model_outputs.remove(self.partial_forces_key)
+
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         Epred = inputs[self.energy_key]
 
-        if hasattr(self, 'calc_partial_forces') and self.calc_partial_forces:
-            n_atoms = inputs['_n_atoms'][0]
+        if self.calc_partial_forces and not self.md_mode:
+            device = inputs['_n_atoms'].device
             batch_size = len(inputs['_n_atoms'])
-            batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), n_atoms)
+            batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
             partial_forces_list = []
-            for j in range(n_atoms):
+            for atom_i in range(max(inputs['_n_atoms']).item()):
+                molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= atom_i+1]
                 forces_row = grad(
-                    outputs=[batch_split_energy_contributions[i][j] for i in range(batch_size)],
+                    outputs=[batch_split_energy_contributions[sample_idx][atom_i]
+                        for sample_idx in molecules_with_enough_atoms],
                     inputs=[inputs['_positions']],
                     create_graph=self.training,
                     retain_graph=True,
                 )[0]
                 partial_forces_list.append(forces_row)
-            partial_forces = torch.cat(torch.split(torch.stack(partial_forces_list), n_atoms, dim=1))
+            partial_forces = torch.stack(partial_forces_list)
+            # forces are negative gradient
             partial_forces = - partial_forces
             inputs[self.partial_forces_key] = partial_forces
+        else:
+            inputs[self.partial_forces_key] = None
 
         go: List[Optional[torch.Tensor]] = [torch.ones_like(Epred)]
         grads = grad(

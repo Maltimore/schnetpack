@@ -16,6 +16,7 @@ from schnetpack.data import (
     BaseAtomsData,
     AtomsLoader,
     calculate_stats,
+    estimate_atomrefs,
     SplittingStrategy,
     RandomSplit,
 )
@@ -41,7 +42,7 @@ class AtomsDataModule(pl.LightningDataModule):
         num_train: Union[int, float] = None,
         num_val: Union[int, float] = None,
         num_test: Optional[Union[int, float]] = None,
-        split_file: Optional[str] = "split.npz",
+        split_file: Optional[str] = None,
         format: Optional[AtomsDataFormat] = None,
         load_properties: Optional[List[str]] = None,
         val_batch_size: Optional[int] = None,
@@ -61,6 +62,8 @@ class AtomsDataModule(pl.LightningDataModule):
         cleanup_workdir_stage: Optional[str] = "test",
         splitting: Optional[SplittingStrategy] = None,
         pin_memory: Optional[bool] = False,
+        disable_training: bool = False,
+        dataset_name: str = 'default_dataset',
     ):
         """
         Args:
@@ -127,10 +130,13 @@ class AtomsDataModule(pl.LightningDataModule):
         self.property_units = property_units
         self.distance_unit = distance_unit
         self._stats = {}
+        self._atomrefs = {}
         self._is_setup = False
         self.data_workdir = data_workdir
         self.cleanup_workdir_stage = cleanup_workdir_stage
         self._pin_memory = pin_memory
+        self.dataset_name = dataset_name
+        self.disable_training = disable_training
 
         self.train_idx = None
         self.val_idx = None
@@ -284,7 +290,7 @@ class AtomsDataModule(pl.LightningDataModule):
             else:
                 self._log_with_rank("Create split")
 
-                if not self.num_train or not self.num_val:
+                if self.num_train is None or self.num_val is None:
                     raise AtomsDataModuleError(
                         "If no `split_file` is given, the sizes of the training and"
                         + " validation partitions need to be set!"
@@ -294,14 +300,13 @@ class AtomsDataModule(pl.LightningDataModule):
                     self.dataset, self.num_train, self.num_val, self.num_test
                 )
 
-                if self.split_file is not None:
-                    self._log_with_rank("Save split")
-                    np.savez(
-                        self.split_file,
-                        train_idx=self.train_idx,
-                        val_idx=self.val_idx,
-                        test_idx=self.test_idx,
-                    )
+                self._log_with_rank("Save split")
+                np.savez(
+                    f'split_{self.dataset_name}.npz',
+                    train_idx=self.train_idx,
+                    val_idx=self.val_idx,
+                    test_idx=self.test_idx,
+                )
 
         self._log_with_rank("Exit splitting lock")
 
@@ -325,7 +330,6 @@ class AtomsDataModule(pl.LightningDataModule):
             batch_sampler = BatchSampler(
                 sampler=sampler_cls(
                     data_source=dataset,
-                    num_samples=len(dataset),
                     **sampler_args,
                 ),
                 batch_size=self.batch_size,
@@ -359,6 +363,20 @@ class AtomsDataModule(pl.LightningDataModule):
         self._stats[key] = stats
         return stats
 
+    def get_atomrefs(
+        self, property: str, is_extensive: bool
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        key = (property, is_extensive)
+        if key in self._atomrefs:
+            return {property: self._atomrefs[key]}
+
+        atomrefs = estimate_atomrefs(
+            self.train_dataloader(),
+            is_extensive={property: is_extensive},
+        )[property]
+        self._atomrefs[key] = atomrefs
+        return {property: atomrefs}
+
     @property
     def train_dataset(self) -> BaseAtomsData:
         return self._train_dataset
@@ -377,7 +395,7 @@ class AtomsDataModule(pl.LightningDataModule):
             train_batch_sampler = self._setup_sampler(
                 sampler_cls=self.train_sampler_cls,
                 sampler_args=self.train_sampler_args,
-                dataset=self._train_dataset
+                dataset=self._train_dataset,
             )
 
             self._train_dataloader = AtomsLoader(

@@ -13,14 +13,105 @@ __all__ = [
     "AddOffsets",
     "RemoveOffsets",
     "ScaleProperty",
+    "Maltes_neighboring_elements_labels",
+    "Maltes_repelling_forces",
 ]
+
+
+class Maltes_repelling_forces(Transform):
+    is_preprocessor: bool = True
+    is_postprocessor: bool = False
+
+    def __init__(self):
+        super().__init__()
+        self.elem_pair_to_repel_distance = {
+            (1, 1): 1.65,  # H-H covalent bond would be .74, but the H's are non-bonded
+            (1, 6): 1.038,  # 1.06 - 1.12
+            (1, 7): 0.966,
+            (1, 8): 1.71,
+            (6, 6): 1.45,  # 1.20 - 1.55 (lower range is for triple bond)
+            (6, 7): 1.31,  # 1.47 - 2.10
+            (6, 8): 1.19,  # 1.43 - 2.15
+        }
+
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        idx_i = inputs['_idx_i']
+        idx_j = inputs['_idx_j']
+        Z = inputs['_atomic_numbers']
+
+        if '_maltes_r_ij' not in inputs.keys():
+            r_ij = inputs['_positions'][idx_i] - inputs['_positions'][idx_j]
+            inputs['_maltes_r_ij'] = r_ij
+        else:
+            r_ij = inputs['_maltes_r_ij']
+        d_ij = torch.norm(r_ij, dim=1)
+
+        repel_idxes_i = []
+        repel_idxes_j = []
+        for elem_pair, repel_distance in self.elem_pair_to_repel_distance.items():
+            mask = (
+                (
+                 ((Z[idx_i] == elem_pair[0]) & (Z[idx_j] == elem_pair[1]))
+                 |
+                 ((Z[idx_j] == elem_pair[0]) & (Z[idx_i] == elem_pair[1]))
+                )
+                &
+                (
+                    d_ij < repel_distance
+                )
+            )
+            repel_idxes_i.append(idx_i[mask])
+            repel_idxes_j.append(idx_j[mask])
+        inputs['_repel_idxes_i_pleasecollate'] = torch.concatenate(repel_idxes_i, dim=0)
+        inputs['_repel_idxes_j_pleasecollate'] = torch.concatenate(repel_idxes_j, dim=0)
+
+        return inputs
+
+
+class Maltes_neighboring_elements_labels(Transform):
+    is_preprocessor: bool = True
+    is_postprocessor: bool = False
+
+    def __init__(self):
+        super().__init__()
+        self.element_mapping = torch.tensor([
+            -1,
+            0, # H
+            -1,
+            -1,
+            -1,
+            -1,
+            1, # C
+            2, # N
+            3, # O
+            4, # F
+        ])
+
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        if '_maltes_r_ij' not in inputs.keys():
+            r_ij = inputs['_positions'][inputs['_idx_i']] - inputs['_positions'][inputs['_idx_j']]
+            inputs['_maltes_r_ij'] = r_ij
+        else:
+            r_ij = inputs['_maltes_r_ij']
+
+        elements = inputs[structure.Z]
+        inputs['elements_as_labels'] = self.element_mapping[inputs[structure.Z]]
+        inputs['idx_j_elements_as_labels'] = self.element_mapping[inputs[structure.Z][inputs['_idx_j']]]
+        if torch.any(inputs['elements_as_labels'] < 0) or torch.any(inputs['idx_j_elements_as_labels'] < 0):
+            raise Exception('neighbor elems computation went wrong')
+        return inputs
 
 
 class SubtractCenterOfMass(Transform):
     """
     Subtract center of mass from positions.
     """
-
     is_preprocessor: bool = True
     is_postprocessor: bool = False
 
@@ -75,6 +166,7 @@ class RemoveOffsets(Transform):
         zmax: int = 100,
         atomrefs: torch.Tensor = None,
         property_mean: torch.Tensor = None,
+        estimate_atomref: bool = False,
     ):
         """
         Args:
@@ -92,10 +184,11 @@ class RemoveOffsets(Transform):
         self.remove_mean = remove_mean
         self.remove_atomrefs = remove_atomrefs
         self.is_extensive = is_extensive
+        self.estimate_atomref = estimate_atomref
 
-        assert (
-            remove_atomrefs or remove_mean
-        ), "You should set at least one of `remove_mean` and `remove_atomrefs` to true!"
+        assert not (
+            estimate_atomref and atomrefs is not None
+        ), "You can not set `atomrefs` and use `estimate_atomrefs=True!`"
 
         if atomrefs is not None:
             self._atomrefs_initialized = True
@@ -119,7 +212,12 @@ class RemoveOffsets(Transform):
         Sets mean and atomref automatically when using PyTorchLightning integration.
         """
         if self.remove_atomrefs and not self._atomrefs_initialized:
-            atrefs = _datamodule.train_dataset.atomrefs
+            if self.estimate_atomref:
+                atrefs = _datamodule.get_atomrefs(
+                    property=self._property, is_extensive=self.is_extensive
+                )
+            else:
+                atrefs = _datamodule.train_dataset.atomrefs
             self.atomref = atrefs[self._property].detach()
 
         if self.remove_mean and not self._mean_initialized:
@@ -133,10 +231,17 @@ class RemoveOffsets(Transform):
         inputs: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         if self.remove_mean:
-            inputs[self._property] -= self.mean * inputs[structure.n_atoms]
-
+            mean = (
+                self.mean * inputs[structure.n_atoms]
+                if self.is_extensive
+                else self.mean
+            )
+            inputs[self._property] -= mean
         if self.remove_atomrefs:
-            inputs[self._property] -= torch.sum(self.atomref[inputs[structure.Z]])
+            atomref_bias = torch.sum(self.atomref[inputs[structure.Z]])
+            if not self.is_extensive:
+                atomref_bias /= inputs[structure.n_atoms].item()
+            inputs[self._property] -= atomref_bias
 
         return inputs
 
@@ -226,6 +331,7 @@ class AddOffsets(Transform):
         zmax: int = 100,
         atomrefs: torch.Tensor = None,
         property_mean: torch.Tensor = None,
+        estimate_atomref: bool = False,
     ):
         """
         Args:
@@ -244,10 +350,11 @@ class AddOffsets(Transform):
         self.add_atomrefs = add_atomrefs
         self.is_extensive = is_extensive
         self._aggregation = "sum" if self.is_extensive else "mean"
+        self.estimate_atomref = estimate_atomref
 
-        assert (
-            add_mean or add_atomrefs
-        ), "You should set at least one of `add_mean` and `add_atomrefs` to true!"
+        assert not (
+            estimate_atomref and atomrefs is not None
+        ), "You can not set `atomrefs` and use `estimate_atomrefs=True!`"
 
         if atomrefs is not None:
             self._atomrefs_initialized = True
@@ -264,13 +371,18 @@ class AddOffsets(Transform):
         self.register_buffer("atomref", atomrefs)
         self.register_buffer("mean", property_mean)
 
-    def datamodule(self, value):
+    def datamodule(self, _datamodule):
         if self.add_atomrefs and not self._atomrefs_initialized:
-            atrefs = value.train_dataset.atomrefs
+            if self.estimate_atomref:
+                atrefs = _datamodule.get_atomrefs(
+                    property=self._property, is_extensive=self.is_extensive
+                )
+            else:
+                atrefs = _datamodule.train_dataset.atomrefs
             self.atomref = atrefs[self._property].detach()
 
         if self.add_mean and not self._mean_initialized:
-            stats = value.get_stats(
+            stats = _datamodule.get_stats(
                 self._property, self.is_extensive, self.add_atomrefs
             )
             self.mean = stats[0].detach()

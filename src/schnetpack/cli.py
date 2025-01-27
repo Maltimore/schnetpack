@@ -4,13 +4,15 @@ import uuid
 import tempfile
 import socket
 from typing import List
+import random
 
 import torch
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict
 from pytorch_lightning import LightningModule, LightningDataModule, Callback, Trainer
 from pytorch_lightning import seed_everything
 from pytorch_lightning.loggers.logger import Logger
+from pytorch_lightning.utilities import CombinedLoader
 
 import schnetpack as spk
 from schnetpack.utils import str2class
@@ -18,6 +20,8 @@ from schnetpack.utils.script import log_hyperparameters, print_config
 from schnetpack.data import BaseAtomsData, AtomsLoader
 from schnetpack.train import PredictionWriter
 from schnetpack import properties
+from schnetpack.utils import load_model
+
 
 log = logging.getLogger(__name__)
 
@@ -49,14 +53,26 @@ def train(config: DictConfig):
         )
         return
 
-    if not ("model" in config and "data" in config):
+    if not "model" in config: 
         log.error(
             f"""
-        Config incomplete! You have to specify at least `data` and `model`!
+        Config incomplete! You did not specify "model"
         For an example, try one of our pre-defined experiments:
-        > spktrain data_dir=/data/will/be/here +experiment=qm9
+        > spktrain experiment=qm9_atomwise
         """
         )
+        return
+    if not "data" in config and not "datasets" in config:
+        log.error(
+            f"""
+        Config incomplete! You did not specify "data" or "datasets".
+        For an example, try one of our pre-defined experiments:
+        > spktrain experiment=qm9_atomwise
+        """
+        )
+        return
+    if 'data' in config.keys() and 'datasets' in config.keys():
+        log.error('Config error: only key of data or datasets may be specified')
         return
 
     if os.path.exists("config.yaml"):
@@ -86,26 +102,52 @@ def train(config: DictConfig):
         with open("config.yaml", "w") as f:
             OmegaConf.save(config, f, resolve=False)
 
-    if config.get("print_config"):
-        print_config(config, resolve=False)
+    # Set matmul precision if specified
+    if "matmul_precision" in config and config.matmul_precision is not None:
+        log.info(f"Setting float32 matmul precision to <{config.matmul_precision}>")
+        torch.set_float32_matmul_precision(config.matmul_precision)
 
     # Set seed for random number generators in pytorch, numpy and python.random
     if "seed" in config:
         log.info(f"Seed with <{config.seed}>")
-        seed_everything(config.seed, workers=True)
     else:
-        log.info(f"Seed randomly...")
-        seed_everything(workers=True)
+        # choose seed randomly
+        with open_dict(config):
+            config.seed = random.randint(0, 2**32 - 1)
+        log.info(f"Seed randomly with <{config.seed}>")
+    seed_everything(seed=config.seed, workers=True)
+
+    if config.get("print_config"):
+        print_config(config, resolve=False)
 
     if not os.path.exists(config.run.data_dir):
         os.makedirs(config.run.data_dir)
 
     # Init Lightning datamodule
-    log.info(f"Instantiating datamodule <{config.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(
-        config.data,
-        train_sampler_cls=str2class(config.data.train_sampler_cls) if config.data.train_sampler_cls else None,
-    )
+    log.info(f"Instantiating datamodules")
+    datamodule_dict = {}
+    # if `data` is given (and therefore, not `datasets`),
+    # transform `data` into a dict similar to `config.datasets`
+    if 'data' in config.keys():
+        if 'name' in config.data.keys():
+            dataset_key = config.data.pop('name')
+        else:
+            dataset_key = 'default'
+        dataset_configs = {dataset_key: config.data}
+    else:
+        dataset_configs = config.datasets
+    for dataset_key, dataset_config in dataset_configs.items():
+        datamodule: LightningDataModule = hydra.utils.instantiate(
+            dataset_config,
+            train_sampler_cls=(
+                str2class(dataset_config.train_sampler_cls)
+                if dataset_config.train_sampler_cls
+                else None
+            ),
+            dataset_name=dataset_key,
+        )
+        datamodule.setup()
+        datamodule_dict[dataset_key] = datamodule
 
     # Init model
     log.info(f"Instantiating model <{config.model._target_}>")
@@ -123,6 +165,7 @@ def train(config: DictConfig):
         optimizer_cls=str2class(config.task.optimizer_cls),
         scheduler_cls=scheduler_cls,
     )
+    task.add_datamodule(datamodule)
 
     # Init Lightning callbacks
     callbacks: List[Callback] = []
@@ -158,11 +201,41 @@ def train(config: DictConfig):
 
     # Train the model
     log.info("Starting training.")
-    trainer.fit(model=task, datamodule=datamodule, ckpt_path=config.run.ckpt_path)
+    iterables = {}
+    for dataset_key, datamodule in datamodule_dict.items():
+        if datamodule.disable_training:
+            continue
+        iterables[dataset_key] = datamodule.train_dataloader()
+    train_dataloader = CombinedLoader(
+        iterables=iterables,
+        mode='max_size_cycle'
+    )
+    val_dataloader = CombinedLoader(
+        iterables={dataset_key:
+            datamodule.val_dataloader() for
+            dataset_key, datamodule in
+            datamodule_dict.items()
+        },
+        mode='max_size_cycle'
+    )
+
+    trainer.fit(
+        model=task,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader,
+        ckpt_path=config.run.ckpt_path
+    )
 
     # Evaluate model on test set after training
     log.info("Starting testing.")
-    trainer.test(model=task, datamodule=datamodule, ckpt_path="best")
+    trainer.test(
+        model=task,
+        test_dataloaders=CombinedLoader(
+            iterables={dataset_key: datamodule.test_dataloader() for dataset_key, datamodule in datamodule_dict.items()},
+            mode='max_size_cycle'
+        ),
+        ckpt_path="best"
+    )
 
     # Store best model
     best_path = trainer.checkpoint_callback.best_model_path
@@ -182,7 +255,7 @@ def predict(config: DictConfig):
     dataset: BaseAtomsData = hydra.utils.instantiate(config.data)
     loader = AtomsLoader(dataset, batch_size=config.batch_size, num_workers=8)
 
-    model = torch.load("best_model")
+    model = load_model("best_model")
 
     class WrapperLM(LightningModule):
         def __init__(self, model, enable_grad=config.enable_grad):
@@ -200,13 +273,14 @@ def predict(config: DictConfig):
             results = {k: v.detach().cpu() for k, v in results.items()}
             return results
 
-
     log.info(f"Instantiating trainer <{config.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(
         config.trainer,
         callbacks=[
             PredictionWriter(
-                output_dir=config.outputdir, write_interval=config.write_interval, write_idx=config.write_idx_m
+                output_dir=config.outputdir,
+                write_interval=config.write_interval,
+                write_idx=config.write_idx_m,
             )
         ],
         default_root_dir=".",
