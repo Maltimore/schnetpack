@@ -121,7 +121,8 @@ class Forces(nn.Module):
 
     def set_MD_mode(self):
         self.md_mode = True
-        self.model_outputs.remove(self.partial_forces_key)
+        if self.partial_forces_key in self.model_outputs:
+            self.model_outputs.remove(self.partial_forces_key)
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         Epred = inputs[self.energy_key]
