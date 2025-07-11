@@ -71,8 +71,8 @@ def train(config: DictConfig):
         """
         )
         return
-    if 'data' in config.keys() and 'datasets' in config.keys():
-        log.error('Config error: only key of data or datasets may be specified')
+    if 'data' in config.keys() and 'datasets' in config.keys() and config['datasets'] is not None:
+        log.error('Config error: only one key of data or datasets may be specified')
         return
 
     if os.path.exists("config.yaml"):
