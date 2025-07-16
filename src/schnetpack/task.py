@@ -258,7 +258,7 @@ class AtomisticTask(pl.LightningModule):
     def __init__(
         self,
         model: AtomisticModel,
-        loss_modules: List[LossModule] = None, # required, but for now, users may still use `outputs`
+        loss_modules: Dict[str, LossModule] = None, # required, but for now, users may still use `outputs`
         outputs: List[ModelOutput] = None, # DEPRECATED
         optimizer_cls: Type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_args: Optional[Dict[str, Any]] = None,
@@ -301,8 +301,8 @@ class AtomisticTask(pl.LightningModule):
         # the loss_modules are a direct child of this lightning module. This is
         # required by pytorch lightning for various things. For instance, only
         # direct children are placed on the right device.
-        self.loss_modules = nn.ModuleList(loss_modules)
-        for loss_module in loss_modules:
+        self.loss_modules = nn.ModuleList(loss_modules.values())
+        for loss_module in self.loss_modules:
             for dataset_key in loss_module.dataset_keys:
                 if dataset_key not in self.dataset_key_to_loss_modules.keys():
                     self.dataset_key_to_loss_modules[dataset_key] = [loss_module]
