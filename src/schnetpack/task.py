@@ -17,13 +17,16 @@ class Maltes_partial_forces_loss(nn.Module):
             raise ValueError('partial_forces not in predicted batch')
 
         partial_forces_list = torch.split(pred['partial_forces'], batch['_n_atoms'].tolist(), dim=1)
+        partial_forces_atom_indices = pred['partial_forces_atom_indices']
+        n_atoms_in_subset = len(partial_forces_atom_indices)
+        partial_forces_list = [partial_forces[:, partial_forces_atom_indices] for partial_forces in partial_forces_list]
         positions_list = torch.split(batch['_positions'], batch['_n_atoms'].tolist(), dim=0)
         diag_zeroing_masks = [
             torch.ones(
-                (batch['_n_atoms'][molecule_idx].item(), batch['_n_atoms'][molecule_idx]),
+                (n_atoms_in_subset, n_atoms_in_subset),
                 device=positions_list[0].device,
                 dtype=positions_list[0].dtype
-            ) - torch.eye(batch['_n_atoms'][molecule_idx].item(), device=positions_list[0].device)
+            ) - torch.eye(n_atoms_in_subset, device=positions_list[0].device)
             for molecule_idx in range(len(batch['_n_atoms']))
         ]
         loss_per_molecule_list = []
@@ -31,7 +34,7 @@ class Maltes_partial_forces_loss(nn.Module):
             loss_terms_list = []
             partials = partial_forces_list[molecule_idx][:batch['_n_atoms'][molecule_idx].item()]
             positions = positions_list[molecule_idx]
-            r_ij = positions[None, :, :] - positions[:, None, :]
+            r_ij = positions[None, partial_forces_atom_indices, :] - positions[partial_forces_atom_indices, None, :]
             D = torch.norm(r_ij, dim=2)
             # FORCE PAIRS COSINE SIMILARITY
             cosine_sim_force_pairs = torch.nn.functional.cosine_similarity(

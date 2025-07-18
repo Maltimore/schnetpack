@@ -110,6 +110,7 @@ class Forces(nn.Module):
         self.calc_partial_forces = calc_partial_forces
         if calc_partial_forces:
             self.model_outputs.append(partial_forces_key)
+            self.model_outputs.append('partial_forces_atom_indices')
 
         self.required_derivatives = []
         if self.calc_forces:
@@ -129,7 +130,8 @@ class Forces(nn.Module):
         batch_size = len(inputs['_n_atoms'])
         batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
         partial_forces_list = []
-        for atom_i in range(max(inputs['_n_atoms']).item()):
+        atom_indices = torch.randperm(max(inputs['_n_atoms']).item())[:10]
+        for atom_i in atom_indices:
             molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= atom_i+1]
             forces_row = grad(
                 outputs=[batch_split_energy_contributions[sample_idx][atom_i]
@@ -142,12 +144,14 @@ class Forces(nn.Module):
         partial_forces = torch.stack(partial_forces_list)
         # forces are negative gradient
         partial_forces = - partial_forces
-        return partial_forces
+        return partial_forces, atom_indices
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         Epred = inputs[self.energy_key]
         if self.calc_partial_forces and not self.md_mode:
-            inputs[self.partial_forces_key] = self.predict_partial_forces(inputs)
+            partial_forces, atom_indices = self.predict_partial_forces(inputs)
+            inputs[self.partial_forces_key] = partial_forces
+            inputs['partial_forces_atom_indices'] = atom_indices
         else:
             inputs[self.partial_forces_key] = None
 
