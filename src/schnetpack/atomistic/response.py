@@ -86,6 +86,7 @@ class Forces(nn.Module):
         force_key: str = properties.forces,
         stress_key: str = properties.stress,
         partial_forces_key: str = 'partial_forces',
+        n_subsampled_partial_forces: int = -1,
     ):
         """
         Args:
@@ -111,6 +112,7 @@ class Forces(nn.Module):
         if calc_partial_forces:
             self.model_outputs.append(partial_forces_key)
             self.model_outputs.append('partial_forces_atom_indices')
+        self.n_subsampled_partial_forces = n_subsampled_partial_forces
 
         self.required_derivatives = []
         if self.calc_forces:
@@ -130,7 +132,11 @@ class Forces(nn.Module):
         batch_size = len(inputs['_n_atoms'])
         batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
         partial_forces_list = []
-        atom_indices = torch.randperm(max(inputs['_n_atoms']).item())[:10]
+        max_atoms_across_batches = max(inputs['_n_atoms']).item()
+        if self.n_subsampled_partial_forces == -1:
+            atom_indices = torch.randperm(max_atoms_across_batches)[:max_atoms_across_batches]
+        else:
+            atom_indices = torch.randperm(max_atoms_across_batches)[:self.n_subsampled_partial_forces]
         for atom_i in atom_indices:
             molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= atom_i+1]
             forces_row = grad(
