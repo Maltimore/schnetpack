@@ -14,7 +14,7 @@ __all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedL
 class Maltes_partial_forces_loss(nn.Module):
     def __call__(self, pred, batch):
         if 'partial_forces' not in pred.keys():
-            return torch.tensor(0.0)
+            raise ValueError('partial_forces not in predicted batch')
 
         partial_forces_list = torch.split(pred['partial_forces'], batch['_n_atoms'].tolist(), dim=1)
         positions_list = torch.split(batch['_positions'], batch['_n_atoms'].tolist(), dim=0)
