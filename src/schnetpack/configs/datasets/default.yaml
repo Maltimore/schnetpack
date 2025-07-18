@@ -1,1 +1,0 @@
-# this is going to be overridden. we only have it here such that when schnetpack exports the final config during train, the datasets section appears
