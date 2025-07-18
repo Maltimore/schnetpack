@@ -124,28 +124,30 @@ class Forces(nn.Module):
         if self.partial_forces_key in self.model_outputs:
             self.model_outputs.remove(self.partial_forces_key)
 
+    def predict_partial_forces(self, inputs):
+        device = inputs['_n_atoms'].device
+        batch_size = len(inputs['_n_atoms'])
+        batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
+        partial_forces_list = []
+        for atom_i in range(max(inputs['_n_atoms']).item()):
+            molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= atom_i+1]
+            forces_row = grad(
+                outputs=[batch_split_energy_contributions[sample_idx][atom_i]
+                    for sample_idx in molecules_with_enough_atoms],
+                inputs=[inputs['_positions']],
+                create_graph=self.training,
+                retain_graph=True,
+            )[0]
+            partial_forces_list.append(forces_row)
+        partial_forces = torch.stack(partial_forces_list)
+        # forces are negative gradient
+        partial_forces = - partial_forces
+        return partial_forces
+
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         Epred = inputs[self.energy_key]
-
         if self.calc_partial_forces and not self.md_mode:
-            device = inputs['_n_atoms'].device
-            batch_size = len(inputs['_n_atoms'])
-            batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
-            partial_forces_list = []
-            for atom_i in range(max(inputs['_n_atoms']).item()):
-                molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= atom_i+1]
-                forces_row = grad(
-                    outputs=[batch_split_energy_contributions[sample_idx][atom_i]
-                        for sample_idx in molecules_with_enough_atoms],
-                    inputs=[inputs['_positions']],
-                    create_graph=self.training,
-                    retain_graph=True,
-                )[0]
-                partial_forces_list.append(forces_row)
-            partial_forces = torch.stack(partial_forces_list)
-            # forces are negative gradient
-            partial_forces = - partial_forces
-            inputs[self.partial_forces_key] = partial_forces
+            inputs[self.partial_forces_key] = self.predict_partial_forces(inputs)
         else:
             inputs[self.partial_forces_key] = None
 
