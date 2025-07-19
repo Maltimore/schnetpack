@@ -134,7 +134,7 @@ class Forces(nn.Module):
         partial_forces_list = []
         max_atoms_across_batches = max(inputs['_n_atoms']).item()
         if self.n_subsampled_partial_forces == -1:
-            atom_indices = torch.randperm(max_atoms_across_batches)[:max_atoms_across_batches]
+            atom_indices = torch.arange(max_atoms_across_batches)
         else:
             atom_indices = torch.randperm(max_atoms_across_batches)[:self.n_subsampled_partial_forces]
         for atom_i in atom_indices:
