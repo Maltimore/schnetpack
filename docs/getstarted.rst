@@ -6,9 +6,10 @@ Installation
 Requirements
 ^^^^^^^^^^^^
 
-* `Python <http://www.python.org/>`_ (>=3.8)
-* `PyTorch <https://pytorch.org/docs/stable/index.html>`_ (>=1.9)
-* `PyTorchLightning <https://www.pytorchlightning.ai/>`_ (>=1.9.0)
+* `Python <http://www.python.org/>`_ (>=3.12)
+* `PyTorch <https://pytorch.org/docs/stable/index.html>`_ (>=2.5.0)
+* `PyTorchLightning <https://www.pytorchlightning.ai/>`_ (>=2.0.0)
+* `NumPy <https://www.numpy.org/>`_ (>=2.0.0)
 * `Hydra <https://hydra.cc/>`_ (>=1.1.0)
 * `ASE <https://wiki.fysik.dtu.dk/ase/index.html>`_ (>=3.21)
 
@@ -76,9 +77,9 @@ All values of the config can be changed from the command line, including the dir
 By default, the model is stored in a directory with a unique run id hash as a subdirectory of ``spk_workdir/runs``.
 This can be changed as follows::
 
-   $ spktrain experiment=qm9 run.data_dir=/my/data/dir run.path=~/all_my_runs run.id=this_run
+   $ spktrain experiment=qm9_atomwise run.data_dir=/my/data/dir run.path=~/all_my_runs run.id=this_run
 
-If you call ``spktrain experiment=qm9 --help``, you can see the full config with all the parameters
+If you call ``spktrain experiment=qm9_atomwise --help``, you can see the full config with all the parameters
 that can be changed.
 Nested parameters can be changed as follows::
 
@@ -114,7 +115,7 @@ If you would want to additionally change some value of this group, you could use
     $ spktrain experiment=qm9_atomwise data_dir=<path> model/representation=painn model.representation.n_interactions=5
 
 For more details on config groups, have a look at the
-`Hydra docs <https://hydra.cc/docs/next/tutorials/basic/your_first_app/config_groups>`_.
+`Hydra docs <https://hydra.cc/docs/tutorials/basic/your_first_app/config_groups/>`_.
 
 
 Example 2: Potential energy surfaces
