@@ -3,7 +3,7 @@ import math
 import torch
 import numpy as np
 
-__all__ = ["SplittingStrategy", "RandomSplit", "SubsamplePartitions"]
+__all__ = ["SplittingStrategy", "RandomSplit", "SubsamplePartitions", "GroupSplit"]
 
 
 def absolute_split_sizes(dsize: int, split_sizes: List[int]) -> List[int]:
@@ -48,8 +48,8 @@ def random_split(dsize: int, *split_sizes: Union[int, float]) -> List[torch.tens
 
     Args:
         dsize - Size of dataset.
-        split_sizes - Sizes for each split. One can be set to -1 to assign all
-            remaining data. Values in [0, 1] can be used to give relative partition
+        split_sizes - Sizes for each split. One value can be set to None to assign all
+            remaining data. Values in [0, 1) can be used to give relative partition
             sizes.
     """
     split_sizes = absolute_split_sizes(dsize, split_sizes)
