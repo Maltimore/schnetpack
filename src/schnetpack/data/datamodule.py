@@ -62,7 +62,6 @@ class AtomsDataModule(pl.LightningDataModule):
         cleanup_workdir_stage: Optional[str] = "test",
         splitting: Optional[SplittingStrategy] = None,
         pin_memory: Optional[bool] = False,
-        disable_training: bool = False,
         dataset_name: str = 'default_dataset',
     ):
         """
@@ -136,7 +135,6 @@ class AtomsDataModule(pl.LightningDataModule):
         self.cleanup_workdir_stage = cleanup_workdir_stage
         self._pin_memory = pin_memory
         self.dataset_name = dataset_name
-        self.disable_training = disable_training
 
         self.train_idx = None
         self.val_idx = None

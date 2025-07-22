@@ -203,8 +203,6 @@ def train(config: DictConfig):
     log.info("Starting training.")
     iterables = {}
     for dataset_key, datamodule in datamodule_dict.items():
-        if datamodule.disable_training:
-            continue
         iterables[dataset_key] = datamodule.train_dataloader()
     train_dataloader = CombinedLoader(
         iterables=iterables,
