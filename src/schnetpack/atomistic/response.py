@@ -133,6 +133,10 @@ class Forces(nn.Module):
         batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
         partial_forces_list = []
         max_atoms_across_batches = max(inputs['_n_atoms']).item()
+        # models trained with prior version of my schnetpack branch
+        # may not have this attribute
+        if not hasattr(self, 'n_subsampled_partial_force'):
+            self.n_subsampled_partial_forces = -1
         if self.n_subsampled_partial_forces == -1:
             atom_indices = torch.arange(max_atoms_across_batches)
         else:
