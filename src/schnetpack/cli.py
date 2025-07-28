@@ -5,6 +5,7 @@ import tempfile
 import socket
 from typing import List
 import random
+import petname
 
 import torch
 import hydra
@@ -54,7 +55,7 @@ def train(config: DictConfig):
         )
         return
 
-    if not "model" in config: 
+    if not "model" in config:
         log.error(
             f"""
         Config incomplete! You did not specify "model"

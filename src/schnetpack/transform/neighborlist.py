@@ -106,7 +106,7 @@ class CachedNeighborList(Transform):
         # try to read cached NBL
         try:
             data = torch.load(cache_file, weights_only=True)
-            inputs.update(data, weights_only=True)
+            inputs.update(data)
         except IOError:
             # acquire lock for caching
             lock = fasteners.InterProcessLock(
