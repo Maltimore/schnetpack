@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 OmegaConf.register_new_resolver("uuid", lambda: str(uuid.uuid1()))
 OmegaConf.register_new_resolver("petname", lambda: petname.generate())
 OmegaConf.register_new_resolver("tmpdir", tempfile.mkdtemp, use_cache=True)
+OmegaConf.register_new_resolver("eval", eval)
 
 header = """
    _____      __    _   __     __  ____             __
