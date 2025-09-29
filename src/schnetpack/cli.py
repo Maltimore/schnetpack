@@ -161,7 +161,6 @@ def train(config: DictConfig):
     scheduler_cls = (
         str2class(config.task.scheduler_cls) if config.task.scheduler_cls else None
     )
-
     task: spk.AtomisticTask = hydra.utils.instantiate(
         config.task,
         model=model,
@@ -219,7 +218,6 @@ def train(config: DictConfig):
         },
         mode='max_size_cycle'
     )
-
     trainer.fit(
         model=task,
         train_dataloaders=train_dataloader,
