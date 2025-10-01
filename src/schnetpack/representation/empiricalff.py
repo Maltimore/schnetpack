@@ -34,8 +34,10 @@ class EmpiricalFF(nn.Module):
 
         self.bond_distance_equilibrium = torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 1.5)
         self.bond_distance_force_constant =  torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]))
-        self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 0.9)
+        self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 3.141)
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
+        self.C6_embedding = torch.nn.Embedding(9, 1)
+        nn.init.uniform_(self.C6_embedding.weight.data, a=0.1, b=2.0)
 
 
 
@@ -54,10 +56,18 @@ class EmpiricalFF(nn.Module):
         energy_terms.append(E_bond_distance_atomwise[:, None])
 
         # bond angles
-        bond_angles = torch.einsum('bi,bi->b', R_ij_bonded[self.idx_j_triples], R_ij_bonded[self.idx_k_triples]) / (torch.linalg.norm(R_ij_bonded[self.idx_j_triples], dim=1) * torch.linalg.norm(R_ij_bonded[self.idx_k_triples], dim=1))
+        bond_angles = torch.acos(torch.einsum('bi,bi->b', R_ij_bonded[self.idx_j_triples], R_ij_bonded[self.idx_k_triples]) / (torch.linalg.norm(R_ij_bonded[self.idx_j_triples], dim=1) * torch.linalg.norm(R_ij_bonded[self.idx_k_triples], dim=1)))
         E_bond_angle = 0.33 * self.bond_angle_force_constant * (self.bond_angle_equilibrium - bond_angles)**2
         E_bond_angle_atomwise = snn.scatter_add(E_bond_angle, self.idx_i_triples, dim_size=len(atomic_numbers), dim=0)
         energy_terms.append(E_bond_angle_atomwise[:, None])
+
+        # dispersion
+        C6_at_idx_i = self.C6_embedding(atomic_numbers[self.idx_i_full])[:, 0]
+        C6_at_idx_j = self.C6_embedding(atomic_numbers[self.idx_j_full])[:, 0]
+        C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
+        E_dispersion = 0.5 * C6 / D_ij_full.pow(6)
+        E_dispersion_atomwise = snn.scatter_add(E_dispersion, self.idx_i_full, dim_size=len(atomic_numbers), dim=0)
+        energy_terms.append(E_dispersion_atomwise[:, None])
 
         inputs["scalar_representation"] = torch.sum(torch.stack(energy_terms, dim=0), dim=0)
         return inputs
