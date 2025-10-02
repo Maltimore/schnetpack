@@ -77,7 +77,7 @@ class EmpiricalFF(nn.Module):
         C6_at_idx_i = self.C6_embedding(atomic_numbers[self.idx_i_full])[:, 0]
         C6_at_idx_j = self.C6_embedding(atomic_numbers[self.idx_j_full])[:, 0]
         C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
-        E_dispersion = 0.5 * C6 / D_ij_full.pow(6)
+        E_dispersion = - 0.5 * C6 / D_ij_full.pow(6)
         E_dispersion_atomwise = snn.scatter_add(E_dispersion, self.idx_i_full, dim_size=len(atomic_numbers), dim=0)
         energy_terms.append(E_dispersion_atomwise[:, None])
 
