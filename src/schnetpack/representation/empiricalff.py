@@ -74,11 +74,13 @@ class EmpiricalFF(nn.Module):
         energy_terms.append(E_bond_angle_atomwise[:, None])
 
         # dispersion
-        C6_at_idx_i = self.C6_embedding(atomic_numbers[self.idx_i_full])[:, 0]
-        C6_at_idx_j = self.C6_embedding(atomic_numbers[self.idx_j_full])[:, 0]
+        idx_i_dispersion = self.idx_i_full[~self.bonded_mask]
+        idx_j_dispersion = self.idx_j_full[~self.bonded_mask]
+        C6_at_idx_i = self.C6_embedding(atomic_numbers[idx_i_dispersion])[:, 0]
+        C6_at_idx_j = self.C6_embedding(atomic_numbers[idx_j_dispersion])[:, 0]
         C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
-        E_dispersion = - 0.5 * C6 / D_ij_full.pow(6)
-        E_dispersion_atomwise = snn.scatter_add(E_dispersion, self.idx_i_full, dim_size=len(atomic_numbers), dim=0)
+        E_dispersion = - 0.5 * C6 / D_ij_full[~self.bonded_mask].pow(6)
+        E_dispersion_atomwise = snn.scatter_add(E_dispersion, idx_i_dispersion, dim_size=len(atomic_numbers), dim=0)
         energy_terms.append(E_dispersion_atomwise[:, None])
 
         inputs["scalar_representation"] = torch.sum(torch.stack(energy_terms, dim=0), dim=0)
