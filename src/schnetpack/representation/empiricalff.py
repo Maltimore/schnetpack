@@ -61,7 +61,10 @@ class EmpiricalFF(nn.Module):
         # bond angles
         bond_angles = torch.acos(torch.einsum('bi,bi->b', R_ij_bonded[self.idx_j_triples], R_ij_bonded[self.idx_k_triples]) / (torch.linalg.norm(R_ij_bonded[self.idx_j_triples], dim=1) * torch.linalg.norm(R_ij_bonded[self.idx_k_triples], dim=1)))
         E_bond_angle = 0.33 * self.bond_angle_force_constant * (self.bond_angle_equilibrium - bond_angles)**2
-        E_bond_angle_atomwise = snn.scatter_add(E_bond_angle, self.idx_i_triples, dim_size=len(atomic_numbers), dim=0)
+        E_bond_angle_atomwise = \
+            snn.scatter_add(E_bond_angle, self.idx_i_triples, dim_size=len(atomic_numbers), dim=0) +\
+            snn.scatter_add(E_bond_angle, self.idx_j_bonded[self.idx_j_triples], dim_size=len(atomic_numbers), dim=0) +\
+            snn.scatter_add(E_bond_angle, self.idx_j_bonded[self.idx_k_triples], dim_size=len(atomic_numbers), dim=0)
         energy_terms.append(E_bond_angle_atomwise[:, None])
 
         # dispersion
