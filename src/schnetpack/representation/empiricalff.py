@@ -23,6 +23,8 @@ class EmpiricalFF(nn.Module):
         # load bond_indices
         if molecule_db_file.startswith('Ac-Ala3-NHMe'):
             loaded = torch.load('/home/space/datasets/xai4qc/md22/empirical_ff_acal.pth', weights_only=True)
+        else:
+            raise Exception(f'no ff for molecule db file {molecule_db_file}')
 
         self.idx_i_full = loaded['idx_i_full']
         self.idx_j_full = loaded['idx_j_full']
@@ -61,6 +63,10 @@ class EmpiricalFF(nn.Module):
         # bond angles
         bond_angles = torch.acos(torch.einsum('bi,bi->b', R_ij_bonded[self.idx_j_triples], R_ij_bonded[self.idx_k_triples]) / (torch.linalg.norm(R_ij_bonded[self.idx_j_triples], dim=1) * torch.linalg.norm(R_ij_bonded[self.idx_k_triples], dim=1)))
         E_bond_angle = 0.33 * self.bond_angle_force_constant * (self.bond_angle_equilibrium - bond_angles)**2
+        # it's computationally wasteful to add all three
+        # terms when one would suffice (and then removing the
+        # 0.33 factor above), but we do this for the Fij
+        # interpretability analysis
         E_bond_angle_atomwise = \
             snn.scatter_add(E_bond_angle, self.idx_i_triples, dim_size=len(atomic_numbers), dim=0) +\
             snn.scatter_add(E_bond_angle, self.idx_j_bonded[self.idx_j_triples], dim_size=len(atomic_numbers), dim=0) +\
