@@ -17,6 +17,9 @@ class EmpiricalFF(nn.Module):
         molecule_db_file: str,
     ):
         super(EmpiricalFF, self).__init__()
+        # dummy value that is only used for interpretability F_ij analysis
+        self.cutoff = torch.tensor(999.)
+
         # load bond_indices
         if molecule_db_file.startswith('Ac-Ala3-NHMe'):
             loaded = torch.load('/home/space/datasets/xai4qc/md22/empirical_ff_acal.pth', weights_only=True)
