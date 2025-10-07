@@ -11,6 +11,15 @@ import schnetpack.nn as snn
 __all__ = ["EmpiricalFF"]
 
 
+class ClampedEmbedding(nn.Embedding):
+    def __init__(self, num_embeddings, embedding_dim, eps=1e-3, **kwargs):
+        super().__init__(num_embeddings, embedding_dim, **kwargs)
+        self.eps = eps
+
+    def forward(self, idx):
+        return super().forward(idx).clamp(min=self.eps)
+
+
 class EmpiricalFF(nn.Module):
     def __init__(
         self,
@@ -26,9 +35,10 @@ class EmpiricalFF(nn.Module):
         else:
             raise Exception(f'no ff for molecule db file {molecule_db_file}')
 
+        self.bonded_mask = loaded['bonded_mask']
+        self.dispersion_mask = loaded['dispersion_mask']
         self.idx_i_full = loaded['idx_i_full']
         self.idx_j_full = loaded['idx_j_full']
-        self.bonded_mask = loaded['bonded_mask']
         self.idx_i_bonded = loaded['idx_i_bonded']
         self.idx_j_bonded = loaded['idx_j_bonded']
         self.idx_i_triples = loaded[properties.idx_i_triples]
@@ -37,12 +47,12 @@ class EmpiricalFF(nn.Module):
 
 
 
-        self.bond_distance_equilibrium = torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 1.5)
-        self.bond_distance_force_constant =  torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]))
-        self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 3.141)
+        self.bond_distance_equilibrium = torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 1.3)
+        self.bond_distance_force_constant =  torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 5)
+        self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 2.0)  # 2 seems a good default based on previous runs
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
-        self.C6_embedding = torch.nn.Embedding(9, 1)
-        nn.init.uniform_(self.C6_embedding.weight.data, a=0.1, b=2.0)
+        self.C6_embedding = ClampedEmbedding(9, 1)
+        nn.init.uniform_(self.C6_embedding.weight.data, a=1, b=2)
 
 
 
@@ -57,7 +67,9 @@ class EmpiricalFF(nn.Module):
 
         # bond lengths
         E_bond_distance = 0.5 * self.bond_distance_force_constant * (D_ij_bonded - self.bond_distance_equilibrium)**2
-        E_bond_distance_atomwise = snn.scatter_add(E_bond_distance, self.idx_i_bonded, dim_size=len(atomic_numbers), dim=0)
+        E_bond_distance_atomwise = \
+            snn.scatter_add(E_bond_distance, self.idx_i_bonded, dim_size=len(atomic_numbers), dim=0) +\
+            snn.scatter_add(E_bond_distance, self.idx_j_bonded, dim_size=len(atomic_numbers), dim=0)
         energy_terms.append(E_bond_distance_atomwise[:, None])
 
         # bond angles
@@ -74,13 +86,18 @@ class EmpiricalFF(nn.Module):
         energy_terms.append(E_bond_angle_atomwise[:, None])
 
         # dispersion
-        idx_i_dispersion = self.idx_i_full[~self.bonded_mask]
-        idx_j_dispersion = self.idx_j_full[~self.bonded_mask]
+        idx_i_dispersion = self.idx_i_full[self.dispersion_mask]
+        idx_j_dispersion = self.idx_j_full[self.dispersion_mask]
         C6_at_idx_i = self.C6_embedding(atomic_numbers[idx_i_dispersion])[:, 0]
         C6_at_idx_j = self.C6_embedding(atomic_numbers[idx_j_dispersion])[:, 0]
         C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
-        E_dispersion = - 0.5 * C6 / D_ij_full[~self.bonded_mask].pow(6)
-        E_dispersion_atomwise = snn.scatter_add(E_dispersion, idx_i_dispersion, dim_size=len(atomic_numbers), dim=0)
+        if torch.rand(1).item() < 0.001:
+            print(self.C6_embedding.weight[[1, 6,7,8]])
+        E_dispersion = - 0.5 * C6 / D_ij_full[self.dispersion_mask].pow(6)
+        E_dispersion_atomwise = \
+            snn.scatter_add(E_dispersion, idx_i_dispersion, dim_size=len(atomic_numbers), dim=0) +\
+            snn.scatter_add(E_dispersion, idx_j_dispersion, dim_size=len(atomic_numbers), dim=0)
+
         energy_terms.append(E_dispersion_atomwise[:, None])
 
         inputs["scalar_representation"] = torch.sum(torch.stack(energy_terms, dim=0), dim=0)
