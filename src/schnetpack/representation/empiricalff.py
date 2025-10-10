@@ -31,9 +31,14 @@ class EmpiricalFF(nn.Module):
 
         # load bond_indices
         if molecule_db_file.startswith('Ac-Ala3-NHMe'):
-            loaded = torch.load('/home/space/datasets/xai4qc/md22/empirical_ff_acal.pth', weights_only=True)
+            molecule = 'Ac-Ala3-NHMe'
+        elif molecule_db_file.startswith('DHA'):
+            molecule = 'DHA'
+        elif molecule_db_file.startswith('buckyball-catcher'):
+            molecule = 'buckyball-catcher'
         else:
             raise Exception(f'no ff for molecule db file {molecule_db_file}')
+        loaded = torch.load(f'/home/space/datasets/xai4qc/md22/empirical_ff_{molecule}.pth', weights_only=True)
 
         self.bonded_mask = loaded['bonded_mask']
         self.dispersion_mask = loaded['dispersion_mask']
@@ -52,6 +57,7 @@ class EmpiricalFF(nn.Module):
         self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 2.0)  # 2 seems a good default based on previous runs
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
         self.C6_embedding = ClampedEmbedding(9, 1)
+        self.C6_constant = torch.tensor([1.])
         nn.init.uniform_(self.C6_embedding.weight.data, a=1, b=2)
 
 
@@ -88,11 +94,10 @@ class EmpiricalFF(nn.Module):
         # dispersion
         idx_i_dispersion = self.idx_i_full[self.dispersion_mask]
         idx_j_dispersion = self.idx_j_full[self.dispersion_mask]
-        C6_at_idx_i = self.C6_embedding(atomic_numbers[idx_i_dispersion])[:, 0]
-        C6_at_idx_j = self.C6_embedding(atomic_numbers[idx_j_dispersion])[:, 0]
-        C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
-        if torch.rand(1).item() < 0.001:
-            print(self.C6_embedding.weight[[1, 6,7,8]])
+        # C6_at_idx_i = self.C6_embedding(atomic_numbers[idx_i_dispersion])[:, 0]
+        # C6_at_idx_j = self.C6_embedding(atomic_numbers[idx_j_dispersion])[:, 0]
+        # C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
+        C6 = self.C6_constant
         E_dispersion = - 0.5 * C6 / D_ij_full[self.dispersion_mask].pow(6)
         E_dispersion_atomwise = \
             snn.scatter_add(E_dispersion, idx_i_dispersion, dim_size=len(atomic_numbers), dim=0) +\
