@@ -12,6 +12,9 @@ __all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedL
 
 
 class Maltes_partial_forces_loss(nn.Module):
+    def __init__(self, self_force_loss_weight=0.0):
+        super().__init__()
+        self.self_force_loss_weight = self_force_loss_weight
     def __call__(self, pred, batch):
         if 'partial_forces' not in pred.keys():
             raise ValueError('partial_forces not in predicted batch')
@@ -55,10 +58,10 @@ class Maltes_partial_forces_loss(nn.Module):
                 partials.norm(dim=2) - partials.clone().detach().transpose(1, 0).norm(dim=2)
             )**2).sum(axis=0).mean()
             loss_terms_list.append(squared_distance_force_norms)
-            # # SELF FORCES
-            # # the forces of an atom to itself should be 0
-            # self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
-            # loss_terms_list.append(self_force_norm)
+            # SELF FORCES
+            # the forces of an atom to itself should be 0
+            self_force_norm = (torch.diag(torch.norm(partials, dim=2))**2).mean()
+            loss_terms_list.append(self.self_force_loss_weight * self_force_norm)
             # # FORCE TO R_ij COSINE SIMILARITY
             # cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
             #     partials,
