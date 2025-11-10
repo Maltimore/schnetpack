@@ -131,7 +131,7 @@ class Forces(nn.Module):
         device = inputs['_n_atoms'].device
         batch_size = len(inputs['_n_atoms'])
         batch_split_energy_contributions = torch.split(inputs['per_atom_energy_contributions'].squeeze(), inputs['_n_atoms'].tolist())
-        partial_forces_list = []
+        force_rows = []
         max_atoms_across_batches = max(inputs['_n_atoms']).item()
         # models trained with prior version of my schnetpack branch
         # may not have this attribute
@@ -143,15 +143,15 @@ class Forces(nn.Module):
             atom_indices = torch.randperm(max_atoms_across_batches)[:self.n_subsampled_partial_forces]
         for atom_i in atom_indices:
             molecules_with_enough_atoms = torch.arange(batch_size, device=device)[inputs['_n_atoms'] >= atom_i+1]
-            forces_row = grad(
+            force_row = grad(
                 outputs=[batch_split_energy_contributions[sample_idx][atom_i]
                     for sample_idx in molecules_with_enough_atoms],
                 inputs=[inputs['_positions']],
                 create_graph=self.training,
                 retain_graph=True,
             )[0]
-            partial_forces_list.append(forces_row)
-        partial_forces = torch.stack(partial_forces_list)
+            force_rows.append(force_row)
+        partial_forces = torch.stack(force_rows)
         # forces are negative gradient
         partial_forces = - partial_forces
         return partial_forces, atom_indices
