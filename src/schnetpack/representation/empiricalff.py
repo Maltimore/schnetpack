@@ -40,7 +40,7 @@ class EmpiricalFF(nn.Module):
         self.register_buffer('idx_i_triples', loaded[properties.idx_i_triples])
         self.register_buffer('idx_j_triples', loaded[properties.idx_j_triples])
         self.register_buffer('idx_k_triples', loaded[properties.idx_k_triples])
-        # self.register_buffer('charges', loaded['charges'])
+        self.register_buffer('charges', loaded['charges'])
 
 
         self.bond_distance_equilibrium = torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 1.3)
@@ -48,6 +48,7 @@ class EmpiricalFF(nn.Module):
         self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 2.0)  # 2 seems a good default based on previous runs
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
         self.register_buffer('C6_constant', torch.tensor([1.]))
+        self.coulomb_constant = torch.nn.Parameter(torch.tensor([1.]))
 
 
 
@@ -81,14 +82,23 @@ class EmpiricalFF(nn.Module):
         energy_terms.append(E_bond_angle_atomwise[:, None])
 
         # dispersion
-        C6 = self.C6_constant
-        E_dispersion = - 0.5 * C6 / D_ij_full[self.one_three_nonbonded_mask].pow(6)
+        E_dispersion = - 0.5 * self.C6_constant / D_ij_full[self.one_three_nonbonded_mask].pow(6)
         E_dispersion_atomwise = \
             snn.scatter_add(E_dispersion, self.idx_i_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0) +\
             snn.scatter_add(E_dispersion, self.idx_j_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0)
-
         energy_terms.append(E_dispersion_atomwise[:, None])
+
+        # coulomb
+        print(self.coulomb_constant)
+        E_coulomb = \
+            - 0.5 * self.coulomb_constant \
+            * self.charges[self.idx_i_full[self.one_three_nonbonded_mask]] \
+            * self.charges[self.idx_j_full[self.one_three_nonbonded_mask]] \
+            / D_ij_full[self.one_three_nonbonded_mask]
+        E_coulomb_atomwise = \
+            snn.scatter_add(E_coulomb, self.idx_i_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0) +\
+            snn.scatter_add(E_coulomb, self.idx_j_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0)
+        energy_terms.append(E_coulomb_atomwise[:, None])
 
         inputs["scalar_representation"] = torch.sum(torch.stack(energy_terms, dim=0), dim=0)
         return inputs
-
