@@ -1,2 +1,2 @@
 _target_: schnetpack.representation.EmpiricalFF
-molecule_db_file: ${db_file}
+molecule_db_file: ${globals.db_file}
