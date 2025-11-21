@@ -31,23 +31,23 @@ class EmpiricalFF(nn.Module):
             raise Exception(f'no ff for molecule db file {molecule_db_file}')
         loaded = torch.load(f'/home/space/datasets/xai4qc/md22/empirical_ff_{molecule}.pth', weights_only=True)
 
-        self.bonded_mask = loaded['bonded_mask']
-        self.dispersion_mask = loaded['dispersion_mask']
-        self.idx_i_full = loaded['idx_i_full']
-        self.idx_j_full = loaded['idx_j_full']
-        self.idx_i_bonded = loaded['idx_i_bonded']
-        self.idx_j_bonded = loaded['idx_j_bonded']
-        self.idx_i_triples = loaded[properties.idx_i_triples]
-        self.idx_j_triples = loaded[properties.idx_j_triples]
-        self.idx_k_triples = loaded[properties.idx_k_triples]
-
+        self.register_buffer('bonded_mask', loaded['bonded_mask'])
+        self.register_buffer('dispersion_mask', loaded['dispersion_mask'])
+        self.register_buffer('idx_i_full', loaded['idx_i_full'])
+        self.register_buffer('idx_j_full', loaded['idx_j_full'])
+        self.register_buffer('idx_i_bonded', loaded['idx_i_bonded'])
+        self.register_buffer('idx_j_bonded', loaded['idx_j_bonded'])
+        self.register_buffer('idx_i_triples', loaded[properties.idx_i_triples])
+        self.register_buffer('idx_j_triples', loaded[properties.idx_j_triples])
+        self.register_buffer('idx_k_triples', loaded[properties.idx_k_triples])
+        # self.register_buffer('charges', loaded['charges'])
 
 
         self.bond_distance_equilibrium = torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 1.3)
         self.bond_distance_force_constant =  torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 5)
         self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 2.0)  # 2 seems a good default based on previous runs
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
-        self.C6_constant = torch.tensor([1.])
+        self.register_buffer('C6_constant', torch.tensor([1.]))
 
 
 
