@@ -11,15 +11,6 @@ import schnetpack.nn as snn
 __all__ = ["EmpiricalFF"]
 
 
-class ClampedEmbedding(nn.Embedding):
-    def __init__(self, num_embeddings, embedding_dim, eps=1e-3, **kwargs):
-        super().__init__(num_embeddings, embedding_dim, **kwargs)
-        self.eps = eps
-
-    def forward(self, idx):
-        return super().forward(idx).clamp(min=self.eps)
-
-
 class EmpiricalFF(nn.Module):
     def __init__(
         self,
@@ -56,9 +47,7 @@ class EmpiricalFF(nn.Module):
         self.bond_distance_force_constant =  torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 5)
         self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 2.0)  # 2 seems a good default based on previous runs
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
-        self.C6_embedding = ClampedEmbedding(9, 1)
         self.C6_constant = torch.tensor([1.])
-        nn.init.uniform_(self.C6_embedding.weight.data, a=1, b=2)
 
 
 
@@ -94,9 +83,6 @@ class EmpiricalFF(nn.Module):
         # dispersion
         idx_i_dispersion = self.idx_i_full[self.dispersion_mask]
         idx_j_dispersion = self.idx_j_full[self.dispersion_mask]
-        # C6_at_idx_i = self.C6_embedding(atomic_numbers[idx_i_dispersion])[:, 0]
-        # C6_at_idx_j = self.C6_embedding(atomic_numbers[idx_j_dispersion])[:, 0]
-        # C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
         C6 = self.C6_constant
         E_dispersion = - 0.5 * C6 / D_ij_full[self.dispersion_mask].pow(6)
         E_dispersion_atomwise = \
