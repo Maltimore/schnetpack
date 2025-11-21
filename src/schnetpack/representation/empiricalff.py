@@ -32,7 +32,7 @@ class EmpiricalFF(nn.Module):
         loaded = torch.load(f'/home/space/datasets/xai4qc/md22/empirical_ff_{molecule}.pth', weights_only=True)
 
         self.register_buffer('bonded_mask', loaded['bonded_mask'])
-        self.register_buffer('dispersion_mask', loaded['dispersion_mask'])
+        self.register_buffer('one_three_nonbonded_mask', loaded['one_three_nonbonded_mask'])
         self.register_buffer('idx_i_full', loaded['idx_i_full'])
         self.register_buffer('idx_j_full', loaded['idx_j_full'])
         self.register_buffer('idx_i_bonded', loaded['idx_i_bonded'])
@@ -81,13 +81,11 @@ class EmpiricalFF(nn.Module):
         energy_terms.append(E_bond_angle_atomwise[:, None])
 
         # dispersion
-        idx_i_dispersion = self.idx_i_full[self.dispersion_mask]
-        idx_j_dispersion = self.idx_j_full[self.dispersion_mask]
         C6 = self.C6_constant
-        E_dispersion = - 0.5 * C6 / D_ij_full[self.dispersion_mask].pow(6)
+        E_dispersion = - 0.5 * C6 / D_ij_full[self.one_three_nonbonded_mask].pow(6)
         E_dispersion_atomwise = \
-            snn.scatter_add(E_dispersion, idx_i_dispersion, dim_size=len(atomic_numbers), dim=0) +\
-            snn.scatter_add(E_dispersion, idx_j_dispersion, dim_size=len(atomic_numbers), dim=0)
+            snn.scatter_add(E_dispersion, self.idx_i_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0) +\
+            snn.scatter_add(E_dispersion, self.idx_j_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0)
 
         energy_terms.append(E_dispersion_atomwise[:, None])
 
