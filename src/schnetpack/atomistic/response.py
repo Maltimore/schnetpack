@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import schnetpack.properties as properties
 import schnetpack.nn as snn
 
-__all__ = ["Forces", "Strain", "Response", "JustAddToOutput", "Elements"]
+__all__ = ["Forces", "Strain", "Response", "JustAddToOutput"]
 
 
 class ResponseException(Exception):
