@@ -17,46 +17,6 @@ class ResponseException(Exception):
     pass
 
 
-class Elements(nn.Module):
-    """
-    Predict the elements of the neighbors
-    """
-
-    def __init__(self, n_atom_basis):
-        super(Elements, self).__init__()
-        self.md_mode = False
-        self.model_outputs = ['pred_element_j_from_i']
-        self.mu_channel_mix = snn.Dense(
-            n_atom_basis + 1, n_atom_basis, activation=None,
-            bias=False
-        )
-        n_possible_elements = 5  # FIXME TODO
-        self.predict_element_j_from_i = snn.Dense(
-            2 * n_atom_basis,
-            n_possible_elements,
-        )
-
-    def set_MD_mode(self):
-        self.md_mode = True
-        self.model_outputs = []
-
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        if hasattr(self, 'md_mode') and self.md_mode:
-            return inputs
-        q = inputs['scalar_representation']
-        mu = inputs['vector_representation']
-        idx_i = inputs['_idx_i']
-        r_ij = inputs['_maltes_r_ij']
-
-        mu_and_rij = torch.cat([r_ij.reshape([-1, 3, 1]), mu[idx_i]], dim=2)
-        mu_mix = self.mu_channel_mix(mu_and_rij)
-        mu_nonlinearity = torch.norm(mu_mix, dim=1).squeeze()
-        h = torch.concatenate([mu_nonlinearity, q[idx_i]], dim=1)
-        pred_element_j_from_i = self.predict_element_j_from_i(h)
-        inputs['pred_element_j_from_i'] = pred_element_j_from_i
-        return inputs
-
-
 class JustAddToOutput(nn.Module):
     """
     Just adds a predicted quantity to the outputs of the model.
