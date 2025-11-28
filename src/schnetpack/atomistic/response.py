@@ -86,6 +86,8 @@ class Forces(nn.Module):
         self.md_mode = True
         if self.partial_forces_key in self.model_outputs:
             self.model_outputs.remove(self.partial_forces_key)
+        if 'partial_forces_atom_indices' in self.model_outputs:
+            self.model_outputs.remove('partial_forces_atom_indices' )
 
     def predict_partial_forces(self, inputs):
         device = inputs['_n_atoms'].device
@@ -124,6 +126,7 @@ class Forces(nn.Module):
             inputs['partial_forces_atom_indices'] = atom_indices
         else:
             inputs[self.partial_forces_key] = None
+            inputs['partial_forces_atom_indices'] = None
 
         go: List[Optional[torch.Tensor]] = [torch.ones_like(Epred)]
         grads = grad(
