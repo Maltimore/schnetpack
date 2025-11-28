@@ -25,13 +25,13 @@ class Maltes_repelling_forces(Transform):
     def __init__(self):
         super().__init__()
         self.elem_pair_to_repel_distance = {
-            (1, 1): 1.65,  # H-H covalent bond would be .74, but the H's are non-bonded
-            (1, 6): 1.038,  # 1.06 - 1.12
-            (1, 7): 0.966,
-            (1, 8): 1.71,
-            (6, 6): 1.45,  # 1.20 - 1.55 (lower range is for triple bond)
-            (6, 7): 1.31,  # 1.47 - 2.10
-            (6, 8): 1.19,  # 1.43 - 2.15
+            (1, 1): 2.00,  # H-H covalent bond would be .74, but the H's are non-bonded
+            (1, 6): 1.07,  # should be 1.09 (morse), but range is 1.06 - 1.12
+            # (1, 7): 0.966,
+            # (1, 8): 1.71,
+            (6, 6): 1.45,  # (carbon alpha to carbonyl carbon): ~1.51 Å
+            (6, 7): 1.29,  # (peptide bond with partial double bond character): ~1.32–1.33 Å
+            (6, 8): 1.20,  # 1.23 for a double bond
         }
 
     def forward(
@@ -42,11 +42,7 @@ class Maltes_repelling_forces(Transform):
         idx_j = inputs['_idx_j']
         Z = inputs['_atomic_numbers']
 
-        if '_maltes_r_ij' not in inputs.keys():
-            r_ij = inputs['_positions'][idx_i] - inputs['_positions'][idx_j]
-            inputs['_maltes_r_ij'] = r_ij
-        else:
-            r_ij = inputs['_maltes_r_ij']
+        r_ij = inputs['_positions'][idx_i] - inputs['_positions'][idx_j]
         d_ij = torch.norm(r_ij, dim=1)
 
         repel_idxes_i = []
