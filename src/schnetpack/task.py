@@ -57,15 +57,16 @@ class Maltes_partial_forces_loss(nn.Module):
             cosine_sim_force_pairs = cosine_sim_force_pairs.div((D + 1e-3)).sum(axis=0).mean()
             loss_terms_list.append(cosine_sim_force_pairs)
             # FORCE PAIR NORMS
-            # loss for making sure nurms of pairs are equal
+            # loss for making sure norms of pairs are equal
             squared_distance_force_norms = ((
                 partial_forces.norm(dim=2) - partial_forces.clone().detach().transpose(1, 0).norm(dim=2)
             )**2).sum(axis=0).mean()
             loss_terms_list.append(squared_distance_force_norms)
-            # SELF FORCES
-            # the forces of an atom to itself should be 0
-            self_force_norm = (torch.diag(torch.norm(partial_forces, dim=2))**2).mean()
-            loss_terms_list.append(self.self_force_loss_weight * self_force_norm)
+            # # SELF FORCES
+            # # the forces of an atom to itself should be equal to the sum of forces it "sends out"
+            # # self_force_norm = ((partial_forces.sum(dim=1) - 2*torch.diagonal(partial_forces, dim1=0, dim2=1).permute(1, 0)).norm(dim=1)**2).mean()
+            # self_force_norm = (partial_forces.sum(dim=1).norm(dim=1)**2).mean()
+            # loss_terms_list.append(self.self_force_loss_weight * self_force_norm)
             # # FORCE TO R_ij COSINE SIMILARITY
             # cosine_sim_force_r_ij = torch.nn.functional.cosine_similarity(
             #     partial_forces,
@@ -77,21 +78,21 @@ class Maltes_partial_forces_loss(nn.Module):
             # cosine_sim_force_r_ij_masked = cosine_sim_force_r_ij * diag_zeroing_masks[molecule_idx]
             # force_to_rij_cosine_loss = (-cosine_sim_force_r_ij_masked[D < 2.0]**4).mean()
             # loss_terms_list.append(force_to_rij_cosine_loss)
-            # # REPELLING FORCES
-            # repel_idxes_i_all = batch['repel_idxes_i']
-            # atom_start_idx = sum(batch['_n_atoms'][:molecule_idx])
-            # atom_stop_idx = atom_start_idx + batch['_n_atoms'][molecule_idx]
-            # mask = (repel_idxes_i_all >= atom_start_idx) & (repel_idxes_i_all < atom_stop_idx)
-            # repel_idxes_i = repel_idxes_i_all[mask] - atom_start_idx
-            # repel_idxes_j = batch['repel_idxes_j'][mask] - atom_start_idx
-            # if len(repel_idxes_i) > 0:
-            #     repel_loss = - torch.nn.functional.cosine_similarity(
-            #         partial_forces[repel_idxes_i, repel_idxes_j],
-            #         r_ij[repel_idxes_i, repel_idxes_j],
-            #         dim=1,
-            #         eps=1e-15
-            #     ).mean()
-            #     loss_terms_list.append(10 * repel_loss)
+            # REPELLING FORCES
+            repel_idxes_i_all = batch['repel_idxes_i']
+            atom_start_idx = sum(batch['_n_atoms'][:molecule_idx])
+            atom_stop_idx = atom_start_idx + batch['_n_atoms'][molecule_idx]
+            mask = (repel_idxes_i_all >= atom_start_idx) & (repel_idxes_i_all < atom_stop_idx)
+            repel_idxes_i = repel_idxes_i_all[mask] - atom_start_idx
+            repel_idxes_j = batch['repel_idxes_j'][mask] - atom_start_idx
+            if len(repel_idxes_i) > 0:
+                repel_loss = - torch.nn.functional.cosine_similarity(
+                    partial_forces[repel_idxes_i, repel_idxes_j],
+                    r_ij[repel_idxes_i, repel_idxes_j],
+                    dim=1,
+                    eps=1e-15
+                ).mean()
+                loss_terms_list.append(10 * repel_loss)
 
             # APPEND TO OVERALL LIST
             loss_per_molecule_list.append(sum(loss_terms_list))
