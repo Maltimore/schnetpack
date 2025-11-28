@@ -93,7 +93,7 @@ class EmpiricalFF(nn.Module):
                 snn.scatter_add(E_dispersion, self.idx_j_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0)
             energy_terms.append(E_dispersion_atomwise[:, None])
 
-        # coulomb
+        # elec/coulomb
         if 'all' in self.terms or 'elec' in self.terms:
             E_coulomb = \
                 - 0.5 * self.coulomb_constant \
