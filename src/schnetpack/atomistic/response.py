@@ -16,10 +16,6 @@ __all__ = ["Forces", "Strain", "Response", "JustAddToOutput", "Elements"]
 class ResponseException(Exception):
     pass
 
-# dummy TODO DEBUG delete later
-class Elements(nn.Module):
-    pass
-
 
 class JustAddToOutput(nn.Module):
     """
