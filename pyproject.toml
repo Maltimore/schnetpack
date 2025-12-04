@@ -46,6 +46,8 @@ dependencies = [
     "progressbar",
     "pytest",
     "petname",
+    "pymatgen",
+    "vesin",
 ]
 
 [project.optional-dependencies]
