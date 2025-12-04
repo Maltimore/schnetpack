@@ -11,6 +11,16 @@ import schnetpack.nn as snn
 __all__ = ["EmpiricalFF"]
 
 
+class ClampedEmbedding(nn.Embedding):
+    def __init__(self, num_embeddings, embedding_dim, min=1e-6, max=1e-1, **kwargs):
+        super().__init__(num_embeddings, embedding_dim, **kwargs)
+        self.min = min
+        self.max = max
+
+    def forward(self, idx):
+        return torch.exp(super().forward(idx))
+
+
 class EmpiricalFF(nn.Module):
     def __init__(
         self,
@@ -18,7 +28,7 @@ class EmpiricalFF(nn.Module):
     ):
         super(EmpiricalFF, self).__init__()
         # dummy value that is only used for interpretability F_ij analysis
-        self.cutoff = torch.tensor(999.)
+        self.register_buffer('cutoff', torch.tensor(999.))
         self.terms = ['all']
 
         # load bond_indices
@@ -48,8 +58,10 @@ class EmpiricalFF(nn.Module):
         self.bond_distance_force_constant =  torch.nn.Parameter(torch.ones(self.idx_i_bonded.shape[0]) * 5)
         self.bond_angle_equilibrium = torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]) * 2.0)  # 2 seems a good default based on previous runs
         self.bond_angle_force_constant =  torch.nn.Parameter(torch.ones(self.idx_j_triples.shape[0]))
-        self.register_buffer('C6_constant', torch.tensor([1.]))
-        self.coulomb_constant = torch.nn.Parameter(torch.tensor([1.]))
+        # self.register_buffer('C6_constant', torch.tensor([1.]))
+        self.C6_embedding = ClampedEmbedding(9, 1)
+        nn.init.uniform_(self.C6_embedding.weight.data, a=1e-6, b=1e-2)
+        self.coulomb_trainable_constant = torch.nn.Parameter(torch.tensor([1.]))
 
     def set_terms(self, terms):
         self.terms = terms
@@ -87,7 +99,15 @@ class EmpiricalFF(nn.Module):
 
         # dispersion
         if 'all' in self.terms or 'dispersion' in self.terms:
-            E_dispersion = - 0.5 * self.C6_constant / D_ij_full[self.one_three_nonbonded_mask].pow(6)
+            idx_i_dispersion = self.idx_i_full[self.one_three_nonbonded_mask]
+            idx_j_dispersion = self.idx_j_full[self.one_three_nonbonded_mask]
+            C6_at_idx_i = self.C6_embedding(atomic_numbers[idx_i_dispersion])[:, 0]
+            C6_at_idx_j = self.C6_embedding(atomic_numbers[idx_j_dispersion])[:, 0]
+            C6 = torch.sqrt(C6_at_idx_i * C6_at_idx_j) # geometric mean
+            # debug printing
+            if torch.rand(1).item() < 0.01:
+                print(self.C6_embedding(torch.tensor([1,6,7,8]).to(idx_i_dispersion.device)))
+            E_dispersion = - 0.5 * C6 / D_ij_full[self.one_three_nonbonded_mask].pow(6)
             E_dispersion_atomwise = \
                 snn.scatter_add(E_dispersion, self.idx_i_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0) +\
                 snn.scatter_add(E_dispersion, self.idx_j_full[self.one_three_nonbonded_mask], dim_size=len(atomic_numbers), dim=0)
@@ -96,7 +116,7 @@ class EmpiricalFF(nn.Module):
         # elec/coulomb
         if 'all' in self.terms or 'elec' in self.terms:
             E_coulomb = \
-                - 0.5 * self.coulomb_constant \
+                - 0.5 * self.coulomb_trainable_constant \
                 * self.charges[self.idx_i_full[self.one_three_nonbonded_mask]] \
                 * self.charges[self.idx_j_full[self.one_three_nonbonded_mask]] \
                 / D_ij_full[self.one_three_nonbonded_mask]
