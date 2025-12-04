@@ -10,10 +10,14 @@ import torch.nn.functional as F
 import schnetpack.properties as properties
 import schnetpack.nn as snn
 
-__all__ = ["Forces", "Strain", "Response", "JustAddToOutput"]
+__all__ = ["Forces", "Strain", "Response", "JustAddToOutput", "Elements"]
 
 
 class ResponseException(Exception):
+    pass
+
+# dummy TODO DEBUG delete later
+class Elements(nn.Module):
     pass
 
 
