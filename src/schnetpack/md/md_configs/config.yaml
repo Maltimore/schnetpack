@@ -17,6 +17,7 @@ defaults:
       - checkpoint
       - hdf5
       - tensorboard
+      - Maltes_disabling
 
 hydra:
   run:
