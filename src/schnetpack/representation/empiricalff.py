@@ -25,11 +25,12 @@ class EmpiricalFF(nn.Module):
     def __init__(
         self,
         molecule_db_file: str,
+        terms=['all'],
     ):
         super(EmpiricalFF, self).__init__()
         # dummy value that is only used for interpretability F_ij analysis
         self.register_buffer('cutoff', torch.tensor(999.))
-        self.terms = ['all']
+        self.terms = terms
 
         # load bond_indices
         if molecule_db_file.startswith('Ac-Ala3-NHMe'):
@@ -38,6 +39,8 @@ class EmpiricalFF(nn.Module):
             molecule = 'DHA'
         elif molecule_db_file.startswith('buckyball-catcher'):
             molecule = 'buckyball-catcher'
+        elif molecule_db_file.startswith('chignolin'):
+            molecule = 'chignolin_dft_mbd'
         else:
             raise Exception(f'no ff for molecule db file {molecule_db_file}')
         loaded = torch.load(f'/home/space/datasets/xai4qc/md22/empirical_ff_{molecule}.pth', weights_only=True)
