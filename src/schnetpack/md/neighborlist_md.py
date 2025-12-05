@@ -52,6 +52,8 @@ class NeighborListMD:
         self.previous_cells = None
         self.molecular_indices = None
 
+        self.disabled_molecules = set()
+
     def _update_required(
         self,
         positions: torch.tensor,
@@ -90,10 +92,12 @@ class NeighborListMD:
             update_required = update_required.index_add(
                 0, idx_m, update_positions
             ).bool()
+            update_required[torch.tensor(list(self.disabled_molecules), dtype=torch.long)] = 0
 
             # Check for cell changes (is no cells are required, this will always be zero)
             update_cells = torch.any((self.previous_cells != cells).view(-1, 9), dim=1)
             update_required = torch.logical_or(update_required, update_cells)
+
 
         return update_required
 
@@ -232,3 +236,6 @@ class NeighborListMD:
             input_batch.append(inputs)
 
         return input_batch
+
+    def disable_molecule(self, idx):
+        self.disabled_molecules.add(idx)

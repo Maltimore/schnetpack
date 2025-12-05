@@ -1,4 +1,4 @@
-checkpoint:
-  _target_: schnetpack.md.basic_hooks.Maltes_disabling
-  every_n_steps: 10
+Maltes_disabling:
+  _target_: schnetpack.md.simulation_hooks.Maltes_disabling
+  every_n_steps: 1000
 
