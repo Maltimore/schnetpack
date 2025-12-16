@@ -4,10 +4,26 @@ from torchmetrics.functional.regression.mae import (
     _mean_absolute_error_compute,
     _mean_absolute_error_update,
 )
-
 from typing import Optional, Tuple
 
-__all__ = ["TensorDiagonalMeanAbsoluteError"]
+
+__all__ = ["TensorDiagonalMeanAbsoluteError", "Maltes_r7_metric"]
+
+
+class Maltes_generic_metric(Metric):
+    def __init__(self, loss_fn):
+        super().__init__()
+        # Register state: handles device placement and multi-GPU syncing
+        self.add_state("running_mean", default=torch.tensor(0.))
+        self.add_state("total", default=torch.tensor(0.))
+        self.loss_fn = loss_fn
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor):
+        self.running_mean += self.loss_fn(preds, target)
+        self.total += 1
+
+    def compute(self):
+        return self.running_mean.float() / self.total
 
 
 class TensorDiagonalMeanAbsoluteError(Metric):
