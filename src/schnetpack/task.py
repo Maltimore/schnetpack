@@ -8,7 +8,49 @@ from torchmetrics import Metric
 
 from schnetpack.model.base import AtomisticModel
 
-__all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedLossModule", "AtomisticTask", "Maltes_partial_forces_loss"]
+
+
+__all__ = ["ModelOutput", "LossModule", "DirectComparisonLossModule", "AdvancedLossModule", "AtomisticTask", "Maltes_partial_forces_loss", "Maltes_r7_loss"]
+
+
+class Maltes_r7_loss(nn.Module):
+    def __init__(self, loss_exponent, target_exponent=7):
+        super().__init__()
+        self.loss_exponent = loss_exponent
+        self.target_exponent = target_exponent
+
+    def __call__(self, pred, batch):
+        if 'partial_forces' not in pred.keys():
+            raise ValueError('partial_forces not in predicted batch')
+
+        partial_forces_list = torch.split(pred['partial_forces'], batch['_n_atoms'].tolist(), dim=1)
+        partial_forces_atom_indices = pred['partial_forces_atom_indices']
+        n_atoms_in_subset = len(partial_forces_atom_indices)
+        positions_list = torch.split(batch['_positions'], batch['_n_atoms'].tolist(), dim=0)
+        # mask out entries for which we did not compute partial forces, and also bring the partial forces in the correct randomly sampled order
+        partial_forces_list = [partial_forces[:, partial_forces_atom_indices] for partial_forces in partial_forces_list]
+        positions_list = [positions[partial_forces_atom_indices] for positions in positions_list]
+        loss_per_molecule_list = []
+        for molecule_idx in range(len(batch['_n_atoms'])):
+            loss_terms_list = []
+            partial_forces = partial_forces_list[molecule_idx][:batch['_n_atoms'][molecule_idx].item()]
+            partial_forces_norm = partial_forces.norm(dim=2)
+            positions = positions_list[molecule_idx]
+            r_ij = positions[None, :, :] - positions[:, None, :]
+            D = torch.norm(r_ij, dim=2)
+            mask = (D > 3.5)&(D<6.5)
+            if not torch.any(mask):
+                continue
+            median_strength_at_5A = torch.median(partial_forces_norm[mask])
+            prefactor = median_strength_at_5A / (1./5.**self.target_exponent)
+            r7_target = prefactor / D[D>5.]**self.target_exponent
+            r7_loss = ((torch.log(partial_forces_norm[D>5.]) - torch.log(r7_target))**self.loss_exponent).sum()
+            # APPEND TO OVERALL LIST
+            loss_per_molecule_list.append(r7_loss)
+        if len(loss_per_molecule_list) > 0:
+            return torch.stack(loss_per_molecule_list).mean()
+        else:
+            return torch.tensor(0.0, dtype=partial_forces.dtype)
 
 
 class Maltes_partial_forces_loss(nn.Module):
@@ -39,6 +81,7 @@ class Maltes_partial_forces_loss(nn.Module):
         for molecule_idx in range(len(batch['_n_atoms'])):
             loss_terms_list = []
             partial_forces = partial_forces_list[molecule_idx][:batch['_n_atoms'][molecule_idx].item()]
+            partial_forces_norm = partial_forces.norm(dim=2)
             positions = positions_list[molecule_idx]
             r_ij = positions[None, :, :] - positions[:, None, :]
             D = torch.norm(r_ij, dim=2)
@@ -58,7 +101,7 @@ class Maltes_partial_forces_loss(nn.Module):
             # FORCE PAIR NORMS
             # loss for making sure norms of pairs are equal
             squared_distance_force_norms = ((
-                partial_forces.norm(dim=2) - partial_forces.clone().detach().transpose(1, 0).norm(dim=2)
+                partial_forces_norm - partial_forces_norm.clone().detach().transpose(1, 0)
             )**2).sum(axis=0).mean()
             loss_terms_list.append(squared_distance_force_norms)
             # # FORCE TO R_ij COSINE SIMILARITY
@@ -74,19 +117,22 @@ class Maltes_partial_forces_loss(nn.Module):
             # loss_terms_list.append(force_to_rij_cosine_loss)
             # REPELLING FORCES
             repel_idxes_i_all = batch['repel_idxes_i']
-            atom_start_idx = sum(batch['_n_atoms'][:molecule_idx])
-            atom_stop_idx = atom_start_idx + batch['_n_atoms'][molecule_idx]
-            mask = (repel_idxes_i_all >= atom_start_idx) & (repel_idxes_i_all < atom_stop_idx)
-            repel_idxes_i = repel_idxes_i_all[mask] - atom_start_idx
-            repel_idxes_j = batch['repel_idxes_j'][mask] - atom_start_idx
-            if len(repel_idxes_i) > 0:
-                repel_loss = - torch.nn.functional.cosine_similarity(
-                    partial_forces[repel_idxes_i, repel_idxes_j],
-                    r_ij[repel_idxes_i, repel_idxes_j],
-                    dim=1,
-                    eps=1e-15
-                ).mean()
-                loss_terms_list.append(10 * repel_loss)
+            if repel_idxes_i_all.max() < partial_forces.shape[0]:
+                atom_start_idx = sum(batch['_n_atoms'][:molecule_idx])
+                atom_stop_idx = atom_start_idx + batch['_n_atoms'][molecule_idx]
+                mask = (repel_idxes_i_all >= atom_start_idx) & (repel_idxes_i_all < atom_stop_idx)
+                repel_idxes_i = repel_idxes_i_all[mask] - atom_start_idx
+                repel_idxes_j = batch['repel_idxes_j'][mask] - atom_start_idx
+                if len(repel_idxes_i) > 0:
+                    repel_loss = - torch.nn.functional.cosine_similarity(
+                        partial_forces[repel_idxes_i, repel_idxes_j],
+                        r_ij[repel_idxes_i, repel_idxes_j],
+                        dim=1,
+                        eps=1e-15
+                    ).mean()
+                    loss_terms_list.append(10 * repel_loss)
+            else:
+                warnings.warn('Can not compute repel idxes loss due to subsampling')
 
             # APPEND TO OVERALL LIST
             loss_per_molecule_list.append(sum(loss_terms_list))
